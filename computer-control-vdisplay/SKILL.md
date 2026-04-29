@@ -82,14 +82,23 @@ Installs `wayvnc` and `jq` from official repos. The other required tools
 ones the existing `/computer-control` skill uses on this machine and are
 assumed already installed.
 
-## Lifecycle
+## Lifecycle (short commands — preferred)
+
+After `setup.sh`, the dispatcher `hypr-ccv` is on `~/.local/bin`. Everything below routes to the underlying scripts but is much shorter to type:
 
 ```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+hypr-ccv start                 # spawn nested Hyprland, floating off-screen, + wayvnc
+hypr-ccv status                # processes + IPC reachability
+hypr-ccv stop                  # polite hyprctl exit + clean up
+hypr-ccv help                  # full subcommand list
+```
 
-$SCRIPTS/start.sh      # spawn nested Hyprland, floating off-screen, + wayvnc
-$SCRIPTS/status.sh     # processes + IPC reachability
-$SCRIPTS/stop.sh       # polite hyprctl exit + clean up
+The long-form scripts still work and are equivalent:
+
+```bash
+~/.claude/skills/computer-control-vdisplay/scripts/start.sh
+~/.claude/skills/computer-control-vdisplay/scripts/status.sh
+~/.claude/skills/computer-control-vdisplay/scripts/stop.sh
 ```
 
 Tunables (env vars, set before `start.sh`):
@@ -109,7 +118,60 @@ The sandbox's auto-generated `HYPRLAND_INSTANCE_SIGNATURE` and
 > `$XDG_RUNTIME_DIR/hypr/` before/after launch and detects the new signature
 > via `comm -23`.
 
-## Targeting the sandbox
+## Quick reference (`hypr-ccv` cheat sheet)
+
+```bash
+hypr-ccv start                          # spawn / stop / status
+hypr-ccv stop
+hypr-ccv status
+
+hypr-ccv run firefox                    # launch app inside sandbox
+hypr-ccv run alacritty
+hypr-ccv run chromium --ozone-platform=wayland https://example.com
+
+hypr-ccv click 540 320                  # left click (isolated via wayvnc)
+hypr-ccv click 540 320 --button right
+hypr-ccv dblclick 540 320
+hypr-ccv move 540 320                   # pointer move only
+hypr-ccv scroll 540 320 -3              # scroll down 3 ticks
+hypr-ccv drag 100 200 400 500           # smooth click-drag
+
+hypr-ccv type 'Hello'                   # wtype (isolated)
+hypr-ccv key Return
+hypr-ccv key Escape
+hypr-ccv key Tab
+
+hypr-ccv shot /tmp/v.png                # grim (isolated)
+hypr-ccv copy 'text'                    # wl-copy (isolated)
+hypr-ccv paste                          # wl-paste
+
+hypr-ccv hypr clients -j                # any hyprctl arg, -i SIG injected
+hypr-ccv focus class:firefox            # dispatch focuswindow
+hypr-ccv spawn firefox                  # dispatch exec
+hypr-ccv cursor 540 320                 # dispatch movecursor
+
+hypr-ccv vnc                            # → "localhost:5999"
+hypr-ccv sig                            # current HYPRLAND_INSTANCE_SIGNATURE
+hypr-ccv wl                             # current WAYLAND_DISPLAY
+eval "$(hypr-ccv env)"                  # export both into current shell
+```
+
+**`hypr-cc`** is the equivalent dispatcher for the user's REAL desktop (no isolation):
+
+```bash
+hypr-cc click 540 320                   # ydotool click on real screen
+hypr-cc type 'Hello'
+hypr-cc shot active                     # active-window screenshot
+hypr-cc focus class:firefox
+hypr-cc vol --get-volume / -i 5 / -t    # pamixer
+hypr-cc bri set +10%                    # brightnessctl
+hypr-cc media play-pause                # playerctl
+hypr-cc notify "Title" "Body"
+```
+
+The full prose docs below explain *why* and the underlying mechanisms; the cheat sheet above is the fast path.
+
+## Targeting the sandbox (long form)
 
 The sandbox needs **two** env vars set on every command:
 

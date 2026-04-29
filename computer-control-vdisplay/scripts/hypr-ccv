@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# hypr-ccv — short dispatcher for the sandboxed Hyprland (computer-control-vdisplay).
+# Loads sandbox state from $XDG_RUNTIME_DIR/cc-vdisplay/state.pid and routes
+# subcommands to the underlying scripts so the user can type
+#   hypr-ccv click 555 333
+# instead of
+#   ~/.claude/skills/computer-control-vdisplay/scripts/cc-click.py click 555 333
+set -euo pipefail
+
+SCRIPTS="$HOME/.claude/skills/computer-control-vdisplay/scripts"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/cc-vdisplay"
+PIDFILE="$RUNTIME_DIR/state.pid"
+
+load_state() {
+    if [[ ! -f "$PIDFILE" ]]; then
+        echo "ERROR: sandbox not running. Run 'hypr-ccv start' first." >&2
+        exit 1
+    fi
+    SIG=$(awk -F= '/^hyprland_instance_signature=/{print $2}' "$PIDFILE")
+    WL=$(awk -F= '/^wayland_display=/{print $2}'              "$PIDFILE")
+    VNC_PORT=$(awk -F= '/^vnc_port=/{print $2}'               "$PIDFILE")
+}
+
+usage() {
+    cat <<'HELP'
+hypr-ccv — sandboxed Hyprland dispatcher (does NOT touch the user's real screen)
+
+  start [resolution]   bring up sandbox (default 1920x1080; CC_RESOLUTION env also works)
+  stop                 graceful shutdown
+  status               processes + IPC reachability
+  run <cmd…>           launch an app inside the sandbox (cc-run wrapper)
+
+Pointer (isolated via wayvnc + virtual-pointer):
+  click  X Y [--button left|right|middle]
+  dblclick X Y
+  move   X Y                     # pointer move only, no click
+  scroll X Y N                   # +N up / -N down
+  drag   SX SY DX DY [--button left|right|middle]
+
+Keyboard / clipboard / screenshot (isolated by WAYLAND_DISPLAY):
+  type 'text'                    # wtype
+  key  Return                    # wtype -k <NAME>
+  shot [path]                    # grim → path (default /tmp/sandbox.png)
+  copy 'text'                    # wl-copy
+  paste                          # wl-paste
+
+Hyprland IPC (isolated by instance signature):
+  hypr <args…>                   # hyprctl -i $SIG <args>
+  focus <selector>               # dispatch focuswindow
+  spawn <cmd>                    # dispatch exec
+  cursor X Y                     # dispatch movecursor
+
+Introspection:
+  vnc                            # echo "localhost:$VNC_PORT"
+  env                            # printable exports (use: eval "$(hypr-ccv env)")
+  sig                            # echo HYPRLAND_INSTANCE_SIGNATURE
+  wl                             # echo WAYLAND_DISPLAY
+
+HELP
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    start)    exec "$SCRIPTS/start.sh" "$@" ;;
+    stop)     exec "$SCRIPTS/stop.sh" ;;
+    status)   exec "$SCRIPTS/status.sh" ;;
+    run)      exec "$SCRIPTS/cc-run.sh" "$@" ;;
+
+    click|move|scroll|drag)
+        load_state
+        exec "$SCRIPTS/cc-click.py" "$cmd" "$@"
+        ;;
+    dblclick)
+        load_state
+        exec "$SCRIPTS/cc-click.py" double "$@"
+        ;;
+
+    type)
+        load_state
+        WAYLAND_DISPLAY="$WL" exec wtype "$@"
+        ;;
+    key)
+        load_state
+        WAYLAND_DISPLAY="$WL" exec wtype -k "$@"
+        ;;
+    shot)
+        load_state
+        out="${1:-/tmp/sandbox.png}"
+        WAYLAND_DISPLAY="$WL" grim "$out"
+        echo "$out"
+        ;;
+    copy)
+        load_state
+        if [[ $# -eq 0 ]]; then
+            WAYLAND_DISPLAY="$WL" wl-copy
+        else
+            printf '%s' "$1" | WAYLAND_DISPLAY="$WL" wl-copy
+        fi
+        ;;
+    paste)
+        load_state
+        WAYLAND_DISPLAY="$WL" exec wl-paste "$@"
+        ;;
+
+    hypr)
+        load_state
+        exec hyprctl -i "$SIG" "$@"
+        ;;
+    focus)
+        load_state
+        exec hyprctl -i "$SIG" dispatch focuswindow "$@"
+        ;;
+    spawn)
+        load_state
+        exec hyprctl -i "$SIG" dispatch exec "$@"
+        ;;
+    cursor)
+        load_state
+        exec hyprctl -i "$SIG" dispatch movecursor "$@"
+        ;;
+
+    vnc)
+        load_state
+        echo "localhost:$VNC_PORT"
+        ;;
+    env)
+        load_state
+        printf 'export HYPRLAND_INSTANCE_SIGNATURE=%q\n' "$SIG"
+        printf 'export WAYLAND_DISPLAY=%q\n'             "$WL"
+        echo 'unset DISPLAY'
+        ;;
+    sig) load_state; echo "$SIG" ;;
+    wl)  load_state; echo "$WL" ;;
+
+    help|--help|-h) usage ;;
+    *)
+        echo "unknown subcommand: $cmd  (try: hypr-ccv help)" >&2
+        exit 2
+        ;;
+esac

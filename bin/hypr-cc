@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# hypr-cc — short dispatcher for the user's REAL Hyprland desktop.
+# (Companion to hypr-ccv, which targets the sandbox.)
+#
+# WARNING: every action goes to the user's real screen / mouse / keyboard.
+# Use hypr-ccv if you want isolation.
+set -euo pipefail
+
+export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}"
+
+usage() {
+    cat <<'HELP'
+hypr-cc — Hyprland real-desktop dispatcher (touches the user's actual session!)
+
+Pointer:
+  click   X Y [--button left|right|middle]    move + ydotool click
+  dblclick X Y                                 double left click
+  move    X Y                                  pointer move only
+
+Keyboard:
+  type 'text'                                  wtype
+  key  Return                                  wtype -k <NAME>
+
+Screenshots / clipboard:
+  shot [path|active]                           grim → /tmp/screen.png by default
+  copy 'text'                                  wl-copy
+  paste                                        wl-paste
+
+Hyprland:
+  hypr <args…>                                 hyprctl <args>
+  focus <selector>                             dispatch focuswindow
+  spawn <cmd>                                  dispatch exec
+  workspace N                                  dispatch workspace N
+  active                                       activewindow -j
+
+System:
+  vol  [args…]                                 pamixer
+  bri  [args…]                                 brightnessctl
+  media [args…]                                playerctl
+  notify <args…>                               notify-send
+
+Use 'hypr-ccv' instead for the sandbox.
+HELP
+}
+
+cmd="${1:-help}"
+shift || true
+
+button_code() {
+    case "${1:-left}" in
+        left)   echo 0xC0 ;;
+        right)  echo 0xC1 ;;
+        middle) echo 0xC2 ;;
+        *) echo "unknown button: $1" >&2; return 2 ;;
+    esac
+}
+
+case "$cmd" in
+    click)
+        x="${1?need X}"; y="${2?need Y}"; shift 2
+        btn="left"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --button) btn="$2"; shift 2 ;;
+                *) echo "unknown arg: $1" >&2; exit 2 ;;
+            esac
+        done
+        bcode=$(button_code "$btn")
+        hyprctl dispatch movecursor "$x" "$y" >/dev/null
+        sleep 0.15
+        ydotool click "$bcode"
+        ;;
+    dblclick)
+        x="${1?need X}"; y="${2?need Y}"
+        hyprctl dispatch movecursor "$x" "$y" >/dev/null
+        sleep 0.15
+        ydotool click --repeat 2 --next-delay 50 0xC0
+        ;;
+    move)      hyprctl dispatch movecursor "$1" "$2" ;;
+
+    type)      exec wtype "$@" ;;
+    key)       exec wtype -k "$@" ;;
+
+    shot)
+        target="${1:-}"
+        if [[ "$target" == "active" ]]; then
+            geom=$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+            out="/tmp/screen.png"
+            grim -g "$geom" "$out"
+        else
+            out="${target:-/tmp/screen.png}"
+            grim "$out"
+        fi
+        echo "$out"
+        ;;
+
+    copy)
+        if [[ $# -eq 0 ]]; then
+            wl-copy
+        else
+            printf '%s' "$1" | wl-copy
+        fi
+        ;;
+    paste)     exec wl-paste "$@" ;;
+
+    hypr)      exec hyprctl "$@" ;;
+    focus)     exec hyprctl dispatch focuswindow "$@" ;;
+    spawn)     exec hyprctl dispatch exec "$@" ;;
+    workspace) exec hyprctl dispatch workspace "$@" ;;
+    active)    exec hyprctl activewindow -j ;;
+
+    vol)       exec pamixer "$@" ;;
+    bri)       exec brightnessctl "$@" ;;
+    media)     exec playerctl "$@" ;;
+    notify)    exec notify-send "$@" ;;
+
+    help|--help|-h) usage ;;
+    *)
+        echo "unknown subcommand: $cmd  (try: hypr-cc help)" >&2
+        exit 2
+        ;;
+esac

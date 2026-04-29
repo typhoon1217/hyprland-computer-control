@@ -85,13 +85,35 @@ A second Hyprland instance running invisibly inside the user's session. Apps lau
 
 ### Lifecycle
 
-```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+After `setup.sh`, two short dispatchers are on `~/.local/bin`:
 
-$SCRIPTS/start.sh           # spawn sandbox (nested, floating off-screen, 1920x1080) + wayvnc
-$SCRIPTS/status.sh          # show PIDs, IPC reachability, VNC port
-$SCRIPTS/stop.sh            # graceful shutdown + cleanup
-$SCRIPTS/cc-run.sh firefox  # launch an app inside the sandbox
+- **`hypr-cc`** — drives the user's REAL desktop (mouse / keyboard / windows / volume / brightness / media / notifications)
+- **`hypr-ccv`** — drives the SANDBOX (everything fully isolated by `WAYLAND_DISPLAY` / instance signature / wayvnc)
+
+```bash
+hypr-ccv start                          # spawn sandbox (nested, floating off-screen, 1920x1080) + wayvnc
+hypr-ccv status                         # PIDs, IPC reachability, VNC port
+hypr-ccv stop                           # graceful shutdown + cleanup
+hypr-ccv run firefox                    # launch an app inside the sandbox
+
+hypr-ccv click 540 320                  # isolated click (via wayvnc)
+hypr-ccv type 'hello'                   # isolated key input (via WAYLAND_DISPLAY)
+hypr-ccv shot /tmp/v.png                # isolated screenshot
+hypr-ccv hypr clients -j                # any hyprctl arg, scoped to sandbox
+hypr-ccv help                           # full subcommand list
+```
+
+Real-desktop equivalents (caution — they touch the user's actual session):
+
+```bash
+hypr-cc click 540 320
+hypr-cc type 'hello'
+hypr-cc shot active                     # active-window screenshot
+hypr-cc focus class:firefox
+hypr-cc vol -i 5                        # pamixer wrapper
+hypr-cc bri set +10%                    # brightnessctl wrapper
+hypr-cc media play-pause                # playerctl wrapper
+hypr-cc help
 ```
 
 ### Isolation Guarantees (verified 2026-04-29)
