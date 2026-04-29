@@ -2,8 +2,8 @@
 name: hypr-ccv
 description: >
   Run a sandboxed second Hyprland instance as a nested floating window inside
-  the user's existing session, sized 1920x1080 and positioned just below the
-  visible monitors so the user's screen is undisturbed. Drive it with the same
+  the user's existing session, sized 1920x1080 and positioned outside every
+  monitor viewport (-2400,-2400) so the user's screen is undisturbed. Drive it with the same
   Wayland tooling (hyprctl, wtype, grim, wl-copy) — all of which scope by
   WAYLAND_DISPLAY / HYPRLAND_INSTANCE_SIGNATURE, so input cannot leak into the
   main session. Use when the user wants to test or automate Hyprland behavior
@@ -30,14 +30,15 @@ Real session                                  Visible monitors
   Hyprland 0.54.x  ← user keeps working         DP-7 (1080..3000, y=0..1080)
   ─────────────────────────────────────────     eDP-2 (1080..3000, y=1080..2160)
                                                 ─────────────────────────────
-   ┌── sandbox window (class=aquamarine) ──┐    Below visible area:
-   │ floating, 1920x1080                   │    y = 100% + 10 px
-   │ HYPRLAND_INSTANCE_SIGNATURE=          │    (off-screen, but the parent
-   │   <git>_<unixtime>_<random>           │    compositor still submits
-   │ WAYLAND_DISPLAY=wayland-N             │    frames → grim works)
-   │  ├── wayvnc → localhost:5999          │
-   │  └── apps via cc-run firefox          │
-   └────────────────────────────────────────┘
+   ┌── sandbox window (class=aquamarine) ──┐    Outside every viewport:
+   │ floating, 1920x1080                   │    pos = (-2400, -2400)
+   │ HYPRLAND_INSTANCE_SIGNATURE=          │    (all monitors live at
+   │   <git>_<unixtime>_<random>           │    x≥0,y≥0 — sandbox spans
+   │ WAYLAND_DISPLAY=wayland-N             │    -2400..-480 × -2400..-1320
+   │  ├── wayvnc → localhost:5999          │    so it never overlaps the
+   │  └── apps via cc-run firefox          │    user's screen, but parent
+   └────────────────────────────────────────┘    still commits frames →
+                                                 grim works.
 ```
 
 **Why nested + floating off-screen, not headless or special-workspace:**
@@ -55,8 +56,15 @@ Real session                                  Visible monitors
 - **Floating off-screen works:** Floating windows are always rendered
   regardless of position. The parent compositor submits frames, screencopy
   succeeds, `grim` returns a valid 1920x1080 PNG. The user's monitors do
-  not show the sandbox because it sits at `y = 100%+10` (just past the
-  bottom edge).
+  not show the sandbox because `start.sh` places it at absolute pixel
+  coordinates `(-2400, -2400)` — outside every monitor viewport (which all
+  live at `x≥0, y≥0`). Two pre-launch windowrules also pin
+  `match:class ^(aquamarine)$` to `workspace 1 silent` (frame commit
+  requires the window to be on a workspace some monitor is showing) and
+  force `float on` + `maximize off`. A post-map fallback dispatches
+  `fullscreenstate -1 0` + `setfloating` + position because Aquamarine
+  toplevels frequently map fullscreen, which silently rejects every
+  subsequent placement dispatcher.
 
 ## When to use this skill vs `hypr-cc`
 
@@ -423,9 +431,11 @@ of the sandbox, never on a real monitor.
 - The sandbox does **not** source `~/.config/hypr/hyprland.conf`; it runs
   the minimal config at `scripts/headless.conf`. Test config snippets
   explicitly.
-- The sandbox window is positioned *just below* the bottom monitor edge.
-  On extreme negative-y panel layouts you may see a 1–2 px sliver — bump
-  the `move 0 100%+10` rule to a larger offset if so.
+- The sandbox window is positioned at absolute `(-2400, -2400)`, outside
+  every monitor viewport. If a future monitor layout extends into negative
+  coordinates (e.g. a panel mounted at `y=-1500`), bump the `move ... ...`
+  rule (and the matching post-map `dispatch movewindowpixel exact`) in
+  `scripts/start.sh` to a larger offset.
 
 ## Troubleshooting
 

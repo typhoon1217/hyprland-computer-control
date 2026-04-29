@@ -45,4 +45,14 @@ if [[ -n "$INSTANCE_SIG" ]]; then
 fi
 
 rm -f "$PIDFILE"
+
+# Reload the parent's hyprland.conf so any windowrules the dynamic
+# `keyword windowrule` calls in start.sh accumulated are dropped. Without
+# this, every start/stop cycle leaves stale match:class ^(aquamarine)$
+# rules in the parent compositor's runtime config (harmless, but
+# accumulates). Reload is cheap — just re-parses the user's config file.
+if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    hyprctl reload >/dev/null 2>&1 || true
+fi
+
 echo "Stopped."

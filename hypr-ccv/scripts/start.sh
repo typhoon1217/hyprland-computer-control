@@ -45,20 +45,32 @@ echo "Starting Hyprland sandbox (headless, monitor=$RESOLUTION)..."
 # child appears avoids a focus-flicker frame where the user's active
 # window briefly loses focus to the new child.
 #
-#   - float, size, move : place 1920x1080 floating just below the user's
-#                         monitors (off-screen). Floating windows still
-#                         receive frame submissions, so wl_screencopy
-#                         (grim/wayvnc) works.
-#   - noinitialfocus, nofocus : sandbox never steals focus from the user.
-#                         Tradeoff: ydotool clicks won't reach sandbox
-#                         until the user explicitly focuses class:aquamarine.
+#   - float on        : floating placement (off-screen position needs float).
+#   - maximize off    : block parent compositor from auto-maximising the
+#                       toplevel — Aquamarine wayland clients tend to map
+#                       at full monitor size otherwise.
+#   - size 1920 1080  : exact virtual screen size requested by the sandbox.
+#   - move 0 100%+10  : just below the active monitor's bottom edge.
+#                       Frame submission still happens (floating windows
+#                       are not culled), so wl_screencopy (grim/wayvnc)
+#                       returns valid frames.
+#   - workspace 1     : pin to ws 1 silently. ws 1 is on a visible
+#                       monitor in nearly all layouts, which means the
+#                       parent commits frames for it (a sandbox window on
+#                       an inactive workspace gets frame-suspended → grim
+#                       hangs). The 'silent' suffix avoids stealing focus.
+#
+# Hyprland 0.50+ ships windowrule v3 (windowrulev2 is deprecated and
+# silently rejected). v3 syntax is `match:<sel> <val>, <action> <val>`.
+# v3 dropped `nofullscreen`, `noinitialfocus`, `nofocus` — those are
+# handled in the post-map fallback dispatch below.
 if command -v hyprctl >/dev/null 2>&1; then
     hyprctl --batch "\
-        keyword windowrulev2 'float, class:aquamarine'; \
-        keyword windowrulev2 'size 1920 1080, class:aquamarine'; \
-        keyword windowrulev2 'move 0 100%+10, class:aquamarine'; \
-        keyword windowrulev2 'noinitialfocus, class:aquamarine'; \
-        keyword windowrulev2 'nofocus, class:aquamarine'" \
+        keyword windowrule 'match:class ^(aquamarine)$, float on'; \
+        keyword windowrule 'match:class ^(aquamarine)$, maximize off'; \
+        keyword windowrule 'match:class ^(aquamarine)$, size 1920 1080'; \
+        keyword windowrule 'match:class ^(aquamarine)$, move -2400 -2400'; \
+        keyword windowrule 'match:class ^(aquamarine)$, workspace 1 silent'" \
         >/dev/null 2>&1 || true
 fi
 
@@ -128,15 +140,38 @@ if [[ "$ENABLE_VNC" == "1" ]] && [[ -n "$WL_SOCKET" ]] && command -v wayvnc >/de
     VNC_PID=$!
 fi
 
-# Fallback: if the pre-launch windowrules didn't size/place the window
-# correctly, force it via dispatch.
+# Post-map fallback: even with the windowrules above the parent compositor
+# can map the Aquamarine toplevel as fullscreen (Aquamarine asks for
+# fullscreen by default). A fullscreen window rejects setfloating /
+# resizewindowpixel / movewindowpixel with "Window is fullscreen", and a
+# fullscreen sandbox on an inactive workspace gets frame-suspended →
+# grim hangs.
+#
+# Strategy: poll the parent client list for a class=aquamarine entry,
+# then in one batch (a) drop fullscreen, (b) ensure floating, (c) move
+# to ws 1 silently, (d) resize exact, (e) place off-screen at the
+# active monitor's bottom edge.
 if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-    sleep 0.4
-    hyprctl --batch "\
-        dispatch setfloating pid:$HYPR_PID; \
-        dispatch resizewindowpixel exact 1920 1080,pid:$HYPR_PID; \
-        dispatch movewindowpixel exact 0 100%+10,pid:$HYPR_PID" \
-        >/dev/null 2>&1 || true
+    SANDBOX_ADDR=""
+    for _ in $(seq 1 50); do
+        SANDBOX_ADDR="$(hyprctl clients -j 2>/dev/null \
+            | jq -r '.[] | select(.class=="aquamarine") | .address' \
+            | head -n1)"
+        if [[ -n "$SANDBOX_ADDR" && "$SANDBOX_ADDR" != "null" ]]; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    if [[ -n "$SANDBOX_ADDR" && "$SANDBOX_ADDR" != "null" ]]; then
+        hyprctl --batch "\
+            dispatch fullscreenstate -1 0,address:$SANDBOX_ADDR; \
+            dispatch setfloating address:$SANDBOX_ADDR; \
+            dispatch movetoworkspacesilent 1,address:$SANDBOX_ADDR; \
+            dispatch resizewindowpixel exact 1920 1080,address:$SANDBOX_ADDR; \
+            dispatch movewindowpixel exact -2400 -2400,address:$SANDBOX_ADDR" \
+            >/dev/null 2>&1 || true
+    fi
 fi
 
 {
