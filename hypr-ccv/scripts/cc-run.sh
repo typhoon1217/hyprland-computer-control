@@ -21,7 +21,7 @@ mkdir -p "$LOGDIR"
 
 if [[ ! -f "$PIDFILE" ]]; then
     echo "ERROR: sandbox not running." >&2
-    echo "       Start it: ~/.claude/skills/computer-control-vdisplay/scripts/start.sh" >&2
+    echo "       Start it: ~/.claude/skills/hypr-ccv/scripts/start.sh" >&2
     exit 1
 fi
 

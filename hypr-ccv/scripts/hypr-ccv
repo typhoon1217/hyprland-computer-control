@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# hypr-ccv — short dispatcher for the sandboxed Hyprland (computer-control-vdisplay).
+# hypr-ccv — short dispatcher for the sandboxed Hyprland (hypr-ccv).
 # Loads sandbox state from $XDG_RUNTIME_DIR/cc-vdisplay/state.pid and routes
 # subcommands to the underlying scripts so the user can type
 #   hypr-ccv click 555 333
 # instead of
-#   ~/.claude/skills/computer-control-vdisplay/scripts/cc-click.py click 555 333
+#   ~/.claude/skills/hypr-ccv/scripts/cc-click.py click 555 333
 set -euo pipefail
 
-SCRIPTS="$HOME/.claude/skills/computer-control-vdisplay/scripts"
+SCRIPTS="$HOME/.claude/skills/hypr-ccv/scripts"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/cc-vdisplay"
 PIDFILE="$RUNTIME_DIR/state.pid"
 

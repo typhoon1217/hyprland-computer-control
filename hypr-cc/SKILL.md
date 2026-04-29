@@ -1,5 +1,5 @@
 ---
-name: computer-control
+name: hypr-cc
 description: >
   Direct control of Arch Linux desktop with Hyprland. Use when the user asks to
   interact with the desktop, automate GUI tasks, click/type/move mouse, take

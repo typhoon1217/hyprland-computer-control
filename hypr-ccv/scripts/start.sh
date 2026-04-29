@@ -7,7 +7,7 @@ ENABLE_VNC="${CC_VNC:-1}"
 # Hyprland 0.54 ignores HYPRLAND_INSTANCE_SIGNATURE from env — it auto-generates
 # its own (format: <git-commit>_<unixtime>_<random>). We detect it post-start.
 
-SKILL_DIR="$HOME/.claude/skills/computer-control-vdisplay"
+SKILL_DIR="$HOME/.claude/skills/hypr-ccv"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/cc-vdisplay"
 LOGDIR="$RUNTIME_DIR/logs"
 PIDFILE="$RUNTIME_DIR/state.pid"
@@ -169,7 +169,7 @@ fi
 cat <<'EOF'
 
 Use it (after sourcing env.sh):
-  source ~/.claude/skills/computer-control-vdisplay/scripts/env.sh
+  source ~/.claude/skills/hypr-ccv/scripts/env.sh
   export YDOTOOL_SOCKET=/run/user/1000/.ydotool_socket
   hyprctl monitors
   wtype 'hello'
@@ -177,8 +177,8 @@ Use it (after sourcing env.sh):
   grim /tmp/v.png
 
 Launch apps in the sandbox:
-  ~/.claude/skills/computer-control-vdisplay/scripts/cc-run.sh firefox
+  ~/.claude/skills/hypr-ccv/scripts/cc-run.sh firefox
 
 Stop:
-  ~/.claude/skills/computer-control-vdisplay/scripts/stop.sh
+  ~/.claude/skills/hypr-ccv/scripts/stop.sh
 EOF

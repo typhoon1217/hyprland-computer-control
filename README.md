@@ -2,8 +2,8 @@
 
 Two [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills for controlling Arch Linux desktops running Hyprland (Wayland):
 
-1. **`computer-control`** — direct control of the user's real desktop (mouse, keyboard, windows, screenshots, volume, brightness, media, clipboard, notifications). Useful when Claude needs to act on what's already on screen.
-2. **`computer-control-vdisplay`** — a *sandboxed* second Hyprland instance running as a nested floating window, sized 1920x1080, positioned just below the visible monitors. Useful when Claude needs to test/automate Hyprland behavior without disturbing the user's real screen.
+1. **`hypr-cc`** — direct control of the user's real desktop (mouse, keyboard, windows, screenshots, volume, brightness, media, clipboard, notifications). Useful when Claude needs to act on what's already on screen.
+2. **`hypr-ccv`** — a *sandboxed* second Hyprland instance running as a nested floating window, sized 1920x1080, positioned just below the visible monitors. Useful when Claude needs to test/automate Hyprland behavior without disturbing the user's real screen.
 
 ## Why?
 
@@ -31,8 +31,8 @@ The setup script:
 2. Creates a udev rule for uinput access
 3. Adds your user to the `input` group
 4. Enables the ydotool daemon
-5. Copies the `computer-control` skill to `~/.claude/skills/computer-control/`
-6. Copies the `computer-control-vdisplay` skill to `~/.claude/skills/computer-control-vdisplay/`
+5. Copies the `hypr-cc` skill to `~/.claude/skills/hypr-cc/`
+6. Copies the `hypr-ccv` skill to `~/.claude/skills/hypr-ccv/`
 
 ## Manual Install
 
@@ -44,12 +44,12 @@ sudo pacman -S ydotool wtype grim slurp wl-clipboard libnotify playerctl brightn
 sudo pacman -S wayvnc
 
 # Copy real-desktop skill
-mkdir -p ~/.claude/skills/computer-control
-cp SKILL.md ~/.claude/skills/computer-control/SKILL.md
+mkdir -p ~/.claude/skills/hypr-cc
+cp SKILL.md ~/.claude/skills/hypr-cc/SKILL.md
 
 # Copy sandbox skill
-mkdir -p ~/.claude/skills/computer-control-vdisplay
-cp -r computer-control-vdisplay/* ~/.claude/skills/computer-control-vdisplay/
+mkdir -p ~/.claude/skills/hypr-ccv
+cp -r hypr-ccv/* ~/.claude/skills/hypr-ccv/
 
 # Setup ydotool
 systemctl --user enable --now ydotool.service
@@ -58,7 +58,7 @@ sudo usermod -aG input $USER
 # Re-login for group change to take effect
 ```
 
-## What `computer-control` Can Do
+## What `hypr-cc` Can Do
 
 | Task | Tool Used | Input Conflicts? |
 |------|-----------|-----------------|
@@ -73,7 +73,7 @@ sudo usermod -aG input $USER
 | Media playback | `playerctl` | No |
 | Notifications | `notify-send` | No |
 
-## What `computer-control-vdisplay` Adds
+## What `hypr-ccv` Adds
 
 A second Hyprland instance running invisibly inside the user's session. Apps launched in it never appear on the user's monitors, but they are reachable through:
 
@@ -187,7 +187,7 @@ These skills are for **desktop** control only. For browser automation, use:
 
 ## Troubleshooting
 
-### `computer-control`
+### `hypr-cc`
 
 | Problem | Fix |
 |---------|-----|
@@ -198,7 +198,7 @@ These skills are for **desktop** control only. For browser automation, use:
 | Wrong characters when typing | Use `wtype` instead of `ydotool type` |
 | Input conflicts during automation | Don't touch mouse/keyboard while Claude is clicking |
 
-### `computer-control-vdisplay`
+### `hypr-ccv`
 
 | Problem | Fix |
 |---------|-----|

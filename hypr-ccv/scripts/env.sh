@@ -1,5 +1,5 @@
 # Source this file:
-#   source ~/.claude/skills/computer-control-vdisplay/scripts/env.sh
+#   source ~/.claude/skills/hypr-ccv/scripts/env.sh
 #
 # Reads the current sandbox state and exports:
 #   WAYLAND_DISPLAY              — the headless Hyprland's wayland socket
@@ -11,7 +11,7 @@ PIDFILE="$RUNTIME_DIR/state.pid"
 
 if [[ ! -f "$PIDFILE" ]]; then
     echo "Sandbox not running. Start it first:" >&2
-    echo "  ~/.claude/skills/computer-control-vdisplay/scripts/start.sh" >&2
+    echo "  ~/.claude/skills/hypr-ccv/scripts/start.sh" >&2
     return 1 2>/dev/null || exit 1
 fi
 

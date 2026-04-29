@@ -1,5 +1,5 @@
 ---
-name: computer-control-vdisplay
+name: hypr-ccv
 description: >
   Run a sandboxed second Hyprland instance as a nested floating window inside
   the user's existing session, sized 1920x1080 and positioned just below the
@@ -58,15 +58,15 @@ Real session                                  Visible monitors
   not show the sandbox because it sits at `y = 100%+10` (just past the
   bottom edge).
 
-## When to use this skill vs `computer-control`
+## When to use this skill vs `hypr-cc`
 
 | Situation | Skill |
 |-----------|-------|
 | Test Hyprland configs/keybinds without breaking the real session | **vdisplay** |
 | Long-running Wayland app automation | **vdisplay** |
 | Try a config change that might be unstable | **vdisplay** |
-| Interact with what is *already on the user's screen* | `computer-control` |
-| Quick action on the real workspace | `computer-control` |
+| Interact with what is *already on the user's screen* | `hypr-cc` |
+| Quick action on the real workspace | `hypr-cc` |
 
 The two share no Wayland state. Apps in the sandbox are invisible on the
 real screen, and the sandbox does not source `~/.config/hypr/hyprland.conf`.
@@ -74,12 +74,12 @@ real screen, and the sandbox does not source `~/.config/hypr/hyprland.conf`.
 ## One-time setup
 
 ```bash
-~/.claude/skills/computer-control-vdisplay/scripts/install.sh
+~/.claude/skills/hypr-ccv/scripts/install.sh
 ```
 
 Installs `wayvnc` and `jq` from official repos. The other required tools
 (Hyprland, hyprctl, wtype, ydotool, grim, slurp, wl-clipboard) are the same
-ones the existing `/computer-control` skill uses on this machine and are
+ones the existing `/hypr-cc` skill uses on this machine and are
 assumed already installed.
 
 ## Lifecycle (short commands — preferred)
@@ -96,9 +96,9 @@ hypr-ccv help                  # full subcommand list
 The long-form scripts still work and are equivalent:
 
 ```bash
-~/.claude/skills/computer-control-vdisplay/scripts/start.sh
-~/.claude/skills/computer-control-vdisplay/scripts/status.sh
-~/.claude/skills/computer-control-vdisplay/scripts/stop.sh
+~/.claude/skills/hypr-ccv/scripts/start.sh
+~/.claude/skills/hypr-ccv/scripts/status.sh
+~/.claude/skills/hypr-ccv/scripts/stop.sh
 ```
 
 Tunables (env vars, set before `start.sh`):
@@ -194,7 +194,7 @@ WAYLAND_DISPLAY="$WL" grim /tmp/v.png
 
 **Session** (chain commands in one Bash call):
 ```bash
-source ~/.claude/skills/computer-control-vdisplay/scripts/env.sh && \
+source ~/.claude/skills/hypr-ccv/scripts/env.sh && \
   hyprctl monitors && \
   wtype 'hello' && \
   grim /tmp/v.png
@@ -249,7 +249,7 @@ hyprctl -i "$SIG" cursorpos
 ## Launching applications
 
 ```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+SCRIPTS=~/.claude/skills/hypr-ccv/scripts
 
 $SCRIPTS/cc-run.sh firefox
 $SCRIPTS/cc-run.sh chromium --ozone-platform=wayland https://example.com
@@ -319,7 +319,7 @@ wayvnc forwards the event through wlroots' `zwlr_virtual_pointer_v1`,
 which is scoped to the sandbox — the user's seat never sees it.
 
 ```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+SCRIPTS=~/.claude/skills/hypr-ccv/scripts
 
 $SCRIPTS/cc-click.py click 555 333                  # left click
 $SCRIPTS/cc-click.py click 555 333 --button right   # right click
@@ -342,7 +342,7 @@ directly and doesn't depend on wayvnc.
 ### Standard click pattern
 
 ```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+SCRIPTS=~/.claude/skills/hypr-ccv/scripts
 
 # Position via Hyprland IPC, click via cc-click — both isolated.
 hyprctl -i "$SIG" dispatch movecursor 540 320
@@ -379,7 +379,7 @@ with the skill, but `vncdotool` is fine if it's already installed.
 ## Visual feedback loop
 
 ```bash
-SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+SCRIPTS=~/.claude/skills/hypr-ccv/scripts
 source $SCRIPTS/env.sh
 
 # 1. snapshot
@@ -457,7 +457,7 @@ of the sandbox, never on a real monitor.
 ## Files
 
 ```
-~/.claude/skills/computer-control-vdisplay/
+~/.claude/skills/hypr-ccv/
 ├── SKILL.md
 └── scripts/
     ├── install.sh             # one-time pacman install (wayvnc, jq)

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Setup script for hyprland-computer-control Claude Code skills.
-# Installs both the real-desktop skill (computer-control) and the sandbox
-# skill (computer-control-vdisplay), plus short dispatcher commands
+# Installs both the real-desktop skill (hypr-cc) and the sandbox
+# skill (hypr-ccv), plus short dispatcher commands
 # (hypr-cc, hypr-ccv) on ~/.local/bin.
 # For Arch Linux + Hyprland (Wayland) users.
 
@@ -60,20 +60,20 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "[5/7] Installing computer-control skill (real desktop)..."
-SKILL_DIR="$HOME/.claude/skills/computer-control"
+echo "[5/7] Installing hypr-cc skill (real desktop)..."
+SKILL_DIR="$HOME/.claude/skills/hypr-cc"
 mkdir -p "$SKILL_DIR/bin"
-cp "$SCRIPT_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
-cp "$SCRIPT_DIR/bin/hypr-cc" "$SKILL_DIR/bin/hypr-cc"
+cp "$SCRIPT_DIR/hypr-cc/SKILL.md" "$SKILL_DIR/SKILL.md"
+cp "$SCRIPT_DIR/hypr-cc/bin/hypr-cc" "$SKILL_DIR/bin/hypr-cc"
 chmod +x "$SKILL_DIR/bin/hypr-cc"
 echo "  Installed to $SKILL_DIR"
 
 echo ""
-echo "[6/7] Installing computer-control-vdisplay skill (sandbox)..."
-VSKILL_DIR="$HOME/.claude/skills/computer-control-vdisplay"
+echo "[6/7] Installing hypr-ccv skill (sandbox)..."
+VSKILL_DIR="$HOME/.claude/skills/hypr-ccv"
 mkdir -p "$VSKILL_DIR/scripts"
-cp "$SCRIPT_DIR/computer-control-vdisplay/SKILL.md"      "$VSKILL_DIR/SKILL.md"
-cp "$SCRIPT_DIR/computer-control-vdisplay/scripts/"*     "$VSKILL_DIR/scripts/"
+cp "$SCRIPT_DIR/hypr-ccv/SKILL.md"      "$VSKILL_DIR/SKILL.md"
+cp "$SCRIPT_DIR/hypr-ccv/scripts/"*     "$VSKILL_DIR/scripts/"
 chmod +x "$VSKILL_DIR/scripts/"*.sh "$VSKILL_DIR/scripts/cc-click.py" "$VSKILL_DIR/scripts/hypr-ccv"
 echo "  Installed to $VSKILL_DIR"
 
