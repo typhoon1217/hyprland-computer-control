@@ -1,17 +1,21 @@
 # Hyprland Computer Control
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill for controlling Arch Linux desktops running Hyprland (Wayland).
+Two [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills for controlling Arch Linux desktops running Hyprland (Wayland):
 
-Gives Claude direct control over your desktop — mouse, keyboard, windows, screenshots, volume, brightness, media, clipboard, and notifications — all through native Wayland tools.
+1. **`computer-control`** — direct control of the user's real desktop (mouse, keyboard, windows, screenshots, volume, brightness, media, clipboard, notifications). Useful when Claude needs to act on what's already on screen.
+2. **`computer-control-vdisplay`** — a *sandboxed* second Hyprland instance running as a nested floating window, sized 1920x1080, positioned just below the visible monitors. Useful when Claude needs to test/automate Hyprland behavior without disturbing the user's real screen.
 
 ## Why?
 
-Claude Code can already run shell commands, but it doesn't know *which* commands work on Hyprland/Wayland. This skill teaches it the right tools and patterns, including hard-won gotchas:
+Claude Code can already run shell commands, but it doesn't know *which* commands work on Hyprland/Wayland. These skills teach it the right tools and patterns, including hard-won gotchas:
 
 - **`ydotool mousemove --absolute` is broken on Hyprland** — use `hyprctl dispatch movecursor` instead
 - **`ydotool type/key` bypasses your keymap** — use `wtype` instead (supports any layout, compose keys, input methods)
 - **`ydotool` needs a socket env var** or it silently fails
+- **`ydotool` is kernel-level** — even inside a nested compositor, its events go to the user's active seat (only Wayland-protocol tools like `wtype`, `grim`, `wl-copy` are properly isolated)
 - **Coordinates are virtual**, not monitor-local (matters with multi-monitor setups)
+- **Hyprland 0.40+ has no real headless backend** — Aquamarine forces nested-Wayland or DRM. Sandbox runs nested + floating off-screen.
+- **Hidden special-workspace windows skip frame submission** — `grim` hangs on them. Floating off-screen windows render normally.
 
 ## Quick Start
 
@@ -23,21 +27,29 @@ chmod +x setup.sh
 ```
 
 The setup script:
-1. Installs all required packages via pacman
+1. Installs all required packages via pacman (including `wayvnc` and `jq` for the sandbox)
 2. Creates a udev rule for uinput access
 3. Adds your user to the `input` group
 4. Enables the ydotool daemon
-5. Copies the skill to `~/.claude/skills/computer-control/`
+5. Copies the `computer-control` skill to `~/.claude/skills/computer-control/`
+6. Copies the `computer-control-vdisplay` skill to `~/.claude/skills/computer-control-vdisplay/`
 
 ## Manual Install
 
 ```bash
-# Install dependencies
+# Real-desktop skill dependencies
 sudo pacman -S ydotool wtype grim slurp wl-clipboard libnotify playerctl brightnessctl pamixer jq
 
-# Copy skill
+# Sandbox skill extras
+sudo pacman -S wayvnc
+
+# Copy real-desktop skill
 mkdir -p ~/.claude/skills/computer-control
 cp SKILL.md ~/.claude/skills/computer-control/SKILL.md
+
+# Copy sandbox skill
+mkdir -p ~/.claude/skills/computer-control-vdisplay
+cp -r computer-control-vdisplay/* ~/.claude/skills/computer-control-vdisplay/
 
 # Setup ydotool
 systemctl --user enable --now ydotool.service
@@ -46,7 +58,7 @@ sudo usermod -aG input $USER
 # Re-login for group change to take effect
 ```
 
-## What It Can Do
+## What `computer-control` Can Do
 
 | Task | Tool Used | Input Conflicts? |
 |------|-----------|-----------------|
@@ -61,22 +73,56 @@ sudo usermod -aG input $USER
 | Media playback | `playerctl` | No |
 | Notifications | `notify-send` | No |
 
+## What `computer-control-vdisplay` Adds
+
+A second Hyprland instance running invisibly inside the user's session. Apps launched in it never appear on the user's monitors, but they are reachable through:
+
+- `hyprctl -i $SIG …` — full Hyprland IPC, scoped to the sandbox
+- `WAYLAND_DISPLAY=$WL wtype …` — typing into the sandbox
+- `WAYLAND_DISPLAY=$WL grim …` — screenshotting the sandbox
+- `WAYLAND_DISPLAY=$WL wl-copy …` — sandbox-private clipboard
+- VNC at `localhost:5999` for live monitoring (if `wayvnc` is installed)
+
+### Lifecycle
+
+```bash
+SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+
+$SCRIPTS/start.sh           # spawn sandbox (nested, floating off-screen, 1920x1080) + wayvnc
+$SCRIPTS/status.sh          # show PIDs, IPC reachability, VNC port
+$SCRIPTS/stop.sh            # graceful shutdown + cleanup
+$SCRIPTS/cc-run.sh firefox  # launch an app inside the sandbox
+```
+
+### Isolation Guarantees (verified 2026-04-29)
+
+| Tool | Mechanism | Isolated? |
+|------|-----------|-----------|
+| `hyprctl -i $SIG` | Hyprland IPC (per-instance) | ✅ Complete |
+| `wtype` | `virtual-keyboard-v1` (per `WAYLAND_DISPLAY`) | ✅ Complete |
+| `wl-copy` / `wl-paste` | `wlr-data-control` (per `WAYLAND_DISPLAY`) | ✅ Complete |
+| `grim` | `wlr-screencopy` (per `WAYLAND_DISPLAY`) | ✅ Complete |
+| `ydotool` (click/key) | kernel `/dev/uinput` (system-wide) | ❌ NOT isolated |
+
+**`ydotool` is the one tool that cannot be confined to the sandbox.** It writes through a single system-wide `ydotoold` daemon to `/dev/uinput`, so events land on whichever window the user's seat currently focuses. To use `ydotool click` against the sandbox, the user must explicitly focus the `class:aquamarine` window first (or drive the sandbox via VNC). For most automation, `hyprctl dispatch …` (which has dispatchers for `focuswindow`, `exec`, `killactive`, etc.) and `wtype` are sufficient and fully isolated.
+
 ## Tool Hierarchy
 
-The skill teaches Claude to pick the right tool for each job:
+The skills teach Claude to pick the right tool for each job:
 
 ```
 Need to type text or press keys?
-  → wtype (respects keymap, no conflicts)
+  → wtype (respects keymap, no conflicts, isolated by WAYLAND_DISPLAY)
 
 Need to move the mouse?
-  → hyprctl dispatch movecursor (accurate on Hyprland)
+  → hyprctl dispatch movecursor (accurate on Hyprland, isolated)
 
 Need to click?
-  → ydotool click (only option, warn about input conflicts)
+  → ydotool click — fast, but system-wide; sandbox needs explicit focus first
+  → For full isolation, drive over wayvnc instead
 
-Need to manage windows/volume/brightness?
-  → Direct CLI commands (hyprctl, pamixer, brightnessctl, playerctl)
+Need to manage windows / take screenshots / clipboard?
+  → hyprctl dispatch / grim / wl-copy — all isolated by WAYLAND_DISPLAY
 ```
 
 ## GUI Automation Pattern
@@ -100,19 +146,23 @@ hyprctl monitors -j | jq '.[] | {name, x, y, width, height}'
 
 A monitor at position `x=1920` means its top-left corner is virtual coordinate `(1920, 0)`, not `(0, 0)`.
 
+The sandbox is at virtual `(0, 0)` with a single 1920x1080 monitor — no offsets, no scaling.
+
 ## Browser Automation
 
-This skill is for **desktop** control only. For browser automation, use:
+These skills are for **desktop** control only. For browser automation, use:
 - [claude-in-chrome](https://github.com/nichochar/claude-in-chrome) — Chrome extension MCP (works with your logged-in sessions)
 - [Playwright MCP](https://github.com/anthropics/claude-code/tree/main/plugins/playwright) — DOM-level browser control
 
 ## Requirements
 
 - Arch Linux (or Arch-based distro)
-- Hyprland (Wayland compositor)
+- Hyprland 0.40+ (Aquamarine backend)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ## Troubleshooting
+
+### `computer-control`
 
 | Problem | Fix |
 |---------|-----|
@@ -122,6 +172,17 @@ This skill is for **desktop** control only. For browser automation, use:
 | Mouse coordinates are wrong | Use `hyprctl dispatch movecursor`, check monitor offset |
 | Wrong characters when typing | Use `wtype` instead of `ydotool type` |
 | Input conflicts during automation | Don't touch mouse/keyboard while Claude is clicking |
+
+### `computer-control-vdisplay`
+
+| Problem | Fix |
+|---------|-----|
+| `hyprctl -i $SIG` "couldn't connect" | Re-read `state.pid` — signature changes each start |
+| Sandbox window not invisible | Check `windowrulev2 'move 0 100%+10, class:aquamarine'` is registered |
+| `grim` hangs | Window is hidden; floating off-screen works, hidden workspaces don't |
+| `ydotool` clicks miss the sandbox | `hyprctl dispatch focuswindow "class:aquamarine"` first |
+| `wayvnc` connection refused | Check `status.sh` — wayvnc binds 127.0.0.1 only |
+| Hyprland fails to start | Try `WLR_RENDERER=pixman ~/.claude/.../start.sh` (NVIDIA quirks) |
 
 ## License
 

@@ -2,3 +2,4 @@
 *.jpg
 /tmp/
 .claude/
+.omc/
