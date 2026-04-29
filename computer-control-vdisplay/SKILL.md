@@ -150,25 +150,22 @@ leak to the real `:0`/`:1`.
 | `wtype` | `virtual-keyboard-v1` (per `WAYLAND_DISPLAY`) | ✅ **complete** |
 | `wl-copy` / `wl-paste` | `wlr-data-control` (per `WAYLAND_DISPLAY`) | ✅ **complete** |
 | `grim` | `wlr-screencopy` (per `WAYLAND_DISPLAY`) | ✅ **complete** |
+| `cc-click.py` (RFB → wayvnc) | `zwlr_virtual_pointer_v1` via wayvnc | ✅ **complete** |
 | `ydotool` (click/key) | kernel `/dev/uinput` (system-wide single seat) | ❌ **NOT isolated** |
 
-**ydotool is the one tool that cannot be confined to the sandbox.** It
-talks to a single system-wide `ydotoold` daemon that writes to
-`/dev/uinput`, which creates a virtual input device on the user's only
-seat. The injected event lands on whichever window the seat currently
-focuses — which can be the user's real session if focus flips at the
-wrong moment. **Treat ydotool clicks as user-visible input events.**
+**Click isolation is achieved through `cc-click.py`**, a small RFB
+(VNC protocol) client that connects to the already-running `wayvnc`
+on `localhost:5999`. wayvnc receives the pointer event and forwards it
+through wlroots' `zwlr_virtual_pointer_v1` protocol — which is scoped
+to the sandbox compositor. The user's main seat is never touched.
 
-Safe-by-construction alternatives for clicks inside the sandbox:
-
-- `hyprctl -i $SIG dispatch movecursor X Y` — moves the sandbox cursor
-  precisely; does not click but is fully isolated.
-- For things that have a Hyprland dispatcher (`focuswindow`, `exec`,
-  `killactive`, `togglefloating`, `fullscreen`, etc.) prefer the
-  dispatcher over a screen-coordinate click.
-- For real button clicks, drive the sandbox over wayvnc from a VNC client
-  — the click goes through the VNC seat that wayvnc creates, scoped to
-  the sandbox compositor.
+`ydotool` cannot be confined to the sandbox because it talks to a
+single system-wide `ydotoold` daemon that writes to `/dev/uinput`,
+which creates a virtual input device on the user's only seat. The
+injected event lands on whichever window the seat currently focuses —
+which can be the user's real session if focus flips at the wrong
+moment. **Use `cc-click.py` instead, or drive the sandbox over wayvnc
+from a real VNC client.**
 
 ## Window management — `hyprctl -i $SIG`
 
@@ -252,44 +249,70 @@ echo "text" | WAYLAND_DISPLAY="$WL" wl-copy
 WAYLAND_DISPLAY="$WL" wl-paste
 ```
 
-## Mouse clicks — choose carefully
+## Mouse clicks — `cc-click.py` (isolated, recommended)
 
-Cursor positioning is fully isolated:
+`cc-click.py` is the primary click tool. It speaks RFB (VNC protocol) to
+the wayvnc instance that `start.sh` already runs on `localhost:5999`.
+wayvnc forwards the event through wlroots' `zwlr_virtual_pointer_v1`,
+which is scoped to the sandbox — the user's seat never sees it.
+
 ```bash
+SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+
+$SCRIPTS/cc-click.py click 555 333                  # left click
+$SCRIPTS/cc-click.py click 555 333 --button right   # right click
+$SCRIPTS/cc-click.py click 555 333 --button middle  # middle click
+$SCRIPTS/cc-click.py double 555 333                 # double click
+$SCRIPTS/cc-click.py move 100 200                   # move only
+$SCRIPTS/cc-click.py scroll 555 333 -3              # scroll down 3 ticks
+$SCRIPTS/cc-click.py scroll 555 333  5              # scroll up 5 ticks
+$SCRIPTS/cc-click.py drag 100 200 400 500           # drag with smooth path
+```
+
+Coordinates are in the sandbox's virtual screen (1920x1080 at origin).
+No external dependencies — Python stdlib only. Each call opens a fresh
+RFB session, so it adds ~5–10ms per click, which is fine for automation.
+
+For absolute cursor positioning without clicking, prefer
+`hyprctl -i $SIG dispatch movecursor X Y` — it goes through Hyprland IPC
+directly and doesn't depend on wayvnc.
+
+### Standard click pattern
+
+```bash
+SCRIPTS=~/.claude/skills/computer-control-vdisplay/scripts
+
+# Position via Hyprland IPC, click via cc-click — both isolated.
 hyprctl -i "$SIG" dispatch movecursor 540 320
-hyprctl -i "$SIG" cursorpos
+$SCRIPTS/cc-click.py click 540 320
 ```
 
-Clicking is the hard part — `ydotool` is system-wide:
+### Why not `ydotool`?
+
+`ydotool` writes to `/dev/uinput` via a single system-wide daemon. It
+ignores `WAYLAND_DISPLAY` and lands on whichever window the user's seat
+focuses. To use it against the sandbox, the user's main compositor would
+have to focus the `class:aquamarine` window first — which requires
+overriding the `nofocus` / `noinitialfocus` rules and accepting that
+keyboard typing will go to the sandbox during the click. **Use
+`cc-click.py` instead** unless you have a specific need for `ydotool`.
+
+If you must, `ydotool mousemove --absolute` is still broken on Hyprland
+(same gotcha as the main skill); use `hyprctl -i $SIG dispatch movecursor`
+for absolute moves.
+
+### Alternative: `vncdotool` (extra repo)
+
+Equivalent functionality, but adds a Python package dependency:
 
 ```bash
-# Standard pattern (NOT isolated — see below)
-export YDOTOOL_SOCKET=/run/user/1000/.ydotool_socket
-hyprctl -i "$SIG" dispatch movecursor 540 320 && \
-    sleep 0.2 && \
-    ydotool click 0xC0
+sudo pacman -S vncdotool
+vncdo -s localhost::5999 click 1 -- 540 320
+vncdo -s localhost::5999 type 'hello'      # also works for text input
 ```
 
-For the click to land on the sandbox, the **sandbox window must hold seat
-focus** (i.e., the user's main compositor must have the
-`class=aquamarine` window focused). `start.sh` does **not** auto-focus
-the sandbox (it sets `noinitialfocus, nofocus` window rules so the user's
-work isn't interrupted on launch). To enable click-driving:
-
-```bash
-# Bring focus to the sandbox window (in the user's main session)
-hyprctl dispatch focuswindow "class:aquamarine"
-
-# Now ydotool clicks will be received by the sandbox compositor.
-# The sandbox routes them to whichever sandbox window has its internal focus.
-```
-
-If you cannot tolerate any chance of input leaking to the user, drive the
-sandbox over wayvnc from a VNC client instead of `ydotool`.
-
-**DO NOT** use `ydotool mousemove --absolute` — broken on Hyprland (same
-gotcha as the main skill). Use `hyprctl -i $SIG dispatch movecursor` for
-absolute moves.
+`cc-click.py` is preferred because it has zero dependencies and ships
+with the skill, but `vncdotool` is fine if it's already installed.
 
 ## Visual feedback loop
 
@@ -301,9 +324,11 @@ source $SCRIPTS/env.sh
 grim /tmp/v.png
 # 2. Read /tmp/v.png with the Read tool to see UI state
 # 3. compute coords
-# 4. act (use hyprctl dispatch wherever possible; ydotool only when necessary)
+# 4. act — all paths fully isolated from the user's session
 hyprctl dispatch movecursor 540 320
+$SCRIPTS/cc-click.py click 540 320
 hyprctl dispatch focuswindow "class:firefox"
+wtype 'search query'
 # 5. verify
 grim /tmp/v2.png
 ```
@@ -379,5 +404,6 @@ of the sandbox, never on a real monitor.
     ├── stop.sh                # graceful hyprctl exit + cleanup
     ├── status.sh              # processes + IPC reachability
     ├── env.sh                 # source: export WAYLAND_DISPLAY + HYPRLAND_INSTANCE_SIGNATURE
-    └── cc-run.sh              # cc-run firefox  (launch app in sandbox)
+    ├── cc-run.sh              # cc-run firefox  (launch app in sandbox)
+    └── cc-click.py            # isolated mouse input via wayvnc (RFB protocol)
 ```

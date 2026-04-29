@@ -102,9 +102,12 @@ $SCRIPTS/cc-run.sh firefox  # launch an app inside the sandbox
 | `wtype` | `virtual-keyboard-v1` (per `WAYLAND_DISPLAY`) | ✅ Complete |
 | `wl-copy` / `wl-paste` | `wlr-data-control` (per `WAYLAND_DISPLAY`) | ✅ Complete |
 | `grim` | `wlr-screencopy` (per `WAYLAND_DISPLAY`) | ✅ Complete |
+| `cc-click.py` (RFB → wayvnc) | `zwlr_virtual_pointer_v1` via wayvnc | ✅ Complete |
 | `ydotool` (click/key) | kernel `/dev/uinput` (system-wide) | ❌ NOT isolated |
 
-**`ydotool` is the one tool that cannot be confined to the sandbox.** It writes through a single system-wide `ydotoold` daemon to `/dev/uinput`, so events land on whichever window the user's seat currently focuses. To use `ydotool click` against the sandbox, the user must explicitly focus the `class:aquamarine` window first (or drive the sandbox via VNC). For most automation, `hyprctl dispatch …` (which has dispatchers for `focuswindow`, `exec`, `killactive`, etc.) and `wtype` are sufficient and fully isolated.
+**Click isolation is achieved through `cc-click.py`** — a small RFB (VNC protocol) client (Python stdlib only, ~200 LoC) that connects to the wayvnc instance `start.sh` already runs on `localhost:5999`. wayvnc forwards the pointer event through wlroots' `zwlr_virtual_pointer_v1` protocol, which is scoped to the sandbox compositor. Verified: clicking sandbox coordinate `(960, 540)` with `cc-click.py click 960 540` brings sandbox `Alacritty` to focus while the user's main `kitty (tmux)` window stays focused on the real screen.
+
+`ydotool` cannot be confined to the sandbox because it talks to a single system-wide `ydotoold` daemon writing to `/dev/uinput`. Use `cc-click.py` for clicks and `hyprctl dispatch …` (focuswindow, exec, killactive, etc.) for window operations — both fully isolated.
 
 ## Tool Hierarchy
 
@@ -118,8 +121,8 @@ Need to move the mouse?
   → hyprctl dispatch movecursor (accurate on Hyprland, isolated)
 
 Need to click?
-  → ydotool click — fast, but system-wide; sandbox needs explicit focus first
-  → For full isolation, drive over wayvnc instead
+  → cc-click.py click X Y (sandbox; isolated via wayvnc + virtual-pointer)
+  → ydotool click          (real desktop only; system-wide, NOT isolated)
 
 Need to manage windows / take screenshots / clipboard?
   → hyprctl dispatch / grim / wl-copy — all isolated by WAYLAND_DISPLAY
@@ -180,7 +183,7 @@ These skills are for **desktop** control only. For browser automation, use:
 | `hyprctl -i $SIG` "couldn't connect" | Re-read `state.pid` — signature changes each start |
 | Sandbox window not invisible | Check `windowrulev2 'move 0 100%+10, class:aquamarine'` is registered |
 | `grim` hangs | Window is hidden; floating off-screen works, hidden workspaces don't |
-| `ydotool` clicks miss the sandbox | `hyprctl dispatch focuswindow "class:aquamarine"` first |
+| `cc-click.py` "cannot connect" | wayvnc not running — `status.sh` to confirm, restart with `CC_VNC=1` |
 | `wayvnc` connection refused | Check `status.sh` — wayvnc binds 127.0.0.1 only |
 | Hyprland fails to start | Try `WLR_RENDERER=pixman ~/.claude/.../start.sh` (NVIDIA quirks) |
 
