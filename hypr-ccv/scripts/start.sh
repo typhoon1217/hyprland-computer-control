@@ -64,13 +64,25 @@ echo "Starting Hyprland sandbox (headless, monitor=$RESOLUTION)..."
 # silently rejected). v3 syntax is `match:<sel> <val>, <action> <val>`.
 # v3 dropped `nofullscreen`, `noinitialfocus`, `nofocus` — those are
 # handled in the post-map fallback dispatch below.
+#
+# `render_unfocused on` (snake_case — Hyprland 0.54.3's keyword IPC
+# accepts this form, NOT the camelCase `renderUnfocused` that the source
+# DEFINE_PROP uses) is the load-bearing rule for grim/wayvnc to capture
+# anything: the sandbox window sits at (-2400,-2400), outside every
+# parent monitor's viewport. Without renderUnfocused, the parent
+# compositor stops sending wl_frame_callback to the off-screen surface
+# → the sandbox Hyprland never repaints → wl_screencopy reads stale
+# uninitialised buffers (gray). With the rule, the parent commits up
+# to misc:render_unfocused_fps frames/sec regardless of visibility.
+# Verified 2026-04-29 against Hyprland 0.54.3 + Aquamarine 0.10.0.
 if command -v hyprctl >/dev/null 2>&1; then
     hyprctl --batch "\
         keyword windowrule 'match:class ^(aquamarine)$, float on'; \
         keyword windowrule 'match:class ^(aquamarine)$, maximize off'; \
         keyword windowrule 'match:class ^(aquamarine)$, size 1920 1080'; \
         keyword windowrule 'match:class ^(aquamarine)$, move -2400 -2400'; \
-        keyword windowrule 'match:class ^(aquamarine)$, workspace 1 silent'" \
+        keyword windowrule 'match:class ^(aquamarine)$, workspace 1 silent'; \
+        keyword windowrule 'match:class ^(aquamarine)$, render_unfocused on'" \
         >/dev/null 2>&1 || true
 fi
 
