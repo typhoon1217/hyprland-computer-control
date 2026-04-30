@@ -11,11 +11,13 @@ fi
 
 declare -A pids
 INSTANCE_SIG=""
+SANDBOX_WL=""
 while IFS='=' read -r k v; do
     [[ -z "$k" ]] && continue
     case "$k" in
         hyprland|wayvnc) pids["$k"]="$v" ;;
         hyprland_instance_signature) INSTANCE_SIG="$v" ;;
+        wayland_display) SANDBOX_WL="$v" ;;
     esac
 done < "$PIDFILE"
 
@@ -39,6 +41,34 @@ for key in wayvnc hyprland; do
         kill -9 "$pid" 2>/dev/null || true
     fi
 done
+
+# Capture-tool processes (slurp / hyprpicker / grim / satty) launched
+# inside the sandbox don't always exit when their compositor dies — they
+# reparent to PID 1 and keep waiting for input on a now-dead socket.
+# This matters for the parent compositor: tools like Omarchy's
+# `omarchy-cmd-screenshot` use `pkill slurp && exit 0` as a toggle gate,
+# so a stale sandbox-scoped `slurp` silently swallows every screenshot
+# keypress in the user's main session.
+#
+# Surgical cleanup: only kill processes whose WAYLAND_DISPLAY env
+# matches the sandbox socket recorded in state.pid. Parent-session
+# tools (which have a different WAYLAND_DISPLAY) are never touched.
+if [[ -n "$SANDBOX_WL" ]]; then
+    for proc_dir in /proc/[0-9]*; do
+        [[ -r "$proc_dir/environ" ]] || continue
+        comm="$(< "$proc_dir/comm" 2>/dev/null || true)"
+        case "$comm" in
+            slurp|hyprpicker|grim|satty) ;;
+            *) continue ;;
+        esac
+        env_data="$(tr '\0' '\n' < "$proc_dir/environ" 2>/dev/null || true)"
+        if [[ "$env_data" == *"WAYLAND_DISPLAY=$SANDBOX_WL"* ]]; then
+            pid="${proc_dir##*/}"
+            echo "Cleaning up sandbox-scoped $comm (PID $pid)"
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+fi
 
 if [[ -n "$INSTANCE_SIG" ]]; then
     rm -rf "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr/$INSTANCE_SIG"

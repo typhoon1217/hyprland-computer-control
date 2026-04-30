@@ -463,6 +463,18 @@ of the sandbox, never on a real monitor.
 - **GPU contention / NVIDIA crashes** — set `CC_RESOLUTION=1280x720` and
   prepend `WLR_RENDERER=pixman` to start.sh:
   `WLR_RENDERER=pixman ~/.claude/.../start.sh`.
+- **Parent session's PrintScreen / screenshot key stops working after using
+  the sandbox** — capture tools (`slurp`, `hyprpicker`, `grim`, `satty`)
+  spawned inside the sandbox can outlive the compositor and reparent to
+  PID 1. Tools like Omarchy's `omarchy-cmd-screenshot` use
+  `pkill slurp && exit 0` as a toggle gate, so any stale sandbox-scoped
+  `slurp` silently swallows every parent-session keypress (the slurp dies,
+  the script exits, no overlay ever appears). `hypr-ccv stop` now cleans
+  these up automatically — surgically, by matching `WAYLAND_DISPLAY` so
+  parent-session tools are never touched. After a dirty crash where
+  `state.pid` is gone, recover with `hypr-ccv doctor` (scans `/proc` for
+  capture tools whose `WAYLAND_DISPLAY` points to a vanished socket and
+  kills only those). One-liner fallback: `pkill slurp hyprpicker`.
 
 ## Files
 

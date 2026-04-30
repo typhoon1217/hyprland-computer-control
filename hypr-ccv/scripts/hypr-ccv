@@ -21,13 +21,59 @@ load_state() {
     VNC_PORT=$(awk -F= '/^vnc_port=/{print $2}'               "$PIDFILE")
 }
 
+# Recovery path for when the sandbox died without running stop.sh
+# (e.g. crash, OOM kill, removed state.pid). Scans /proc for capture
+# tools whose WAYLAND_DISPLAY points to a Wayland socket that no
+# longer exists, and kills them. This restores the parent's
+# screenshot keybind when a stale `slurp` is being caught by
+# `omarchy-cmd-screenshot`'s `pkill slurp && exit 0` toggle gate.
+doctor() {
+    local cleaned=0
+    local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    for proc_dir in /proc/[0-9]*; do
+        [[ -r "$proc_dir/environ" ]] || continue
+        local comm
+        comm="$(< "$proc_dir/comm" 2>/dev/null || true)"
+        case "$comm" in
+            slurp|hyprpicker|grim|satty) ;;
+            *) continue ;;
+        esac
+        local env_data wl
+        env_data="$(tr '\0' '\n' < "$proc_dir/environ" 2>/dev/null || true)"
+        wl="$(printf '%s\n' "$env_data" | sed -n 's/^WAYLAND_DISPLAY=//p' | head -n1)"
+        [[ -z "$wl" ]] && continue
+        local sock_path
+        if [[ "$wl" == /* ]]; then
+            sock_path="$wl"
+        else
+            sock_path="$runtime_dir/$wl"
+        fi
+        if [[ ! -S "$sock_path" ]]; then
+            local pid="${proc_dir##*/}"
+            echo "Killing orphan $comm (PID $pid) — stale WAYLAND_DISPLAY=$wl"
+            kill "$pid" 2>/dev/null || true
+            cleaned=$((cleaned + 1))
+        fi
+    done
+    if (( cleaned == 0 )); then
+        echo "No orphan capture tools found."
+    else
+        echo "Cleaned up $cleaned orphan process(es)."
+    fi
+}
+
 usage() {
     cat <<'HELP'
 hypr-ccv — sandboxed Hyprland dispatcher (does NOT touch the user's real screen)
 
   start [resolution]   bring up sandbox (default 1920x1080; CC_RESOLUTION env also works)
-  stop                 graceful shutdown
+  stop                 graceful shutdown (also cleans sandbox-scoped capture tools)
   status               processes + IPC reachability
+  doctor               kill orphan slurp/hyprpicker/grim/satty processes whose
+                       WAYLAND_DISPLAY points to a vanished sandbox socket.
+                       Use after a dirty crash to recover the parent's
+                       screenshot keybind (omarchy-cmd-screenshot's
+                       `pkill slurp` toggle is silently caught by stale slurp).
   run <cmd…>           launch an app inside the sandbox (cc-run wrapper)
 
 Pointer (isolated via wayvnc + virtual-pointer):
@@ -66,6 +112,7 @@ case "$cmd" in
     start)    exec "$SCRIPTS/start.sh" "$@" ;;
     stop)     exec "$SCRIPTS/stop.sh" ;;
     status)   exec "$SCRIPTS/status.sh" ;;
+    doctor|clean) doctor ;;
     run)      exec "$SCRIPTS/cc-run.sh" "$@" ;;
 
     click|move|scroll|drag)

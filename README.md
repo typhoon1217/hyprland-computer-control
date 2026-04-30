@@ -208,6 +208,7 @@ These skills are for **desktop** control only. For browser automation, use:
 | `cc-click.py` "cannot connect" | wayvnc not running — `status.sh` to confirm, restart with `CC_VNC=1` |
 | `wayvnc` connection refused | Check `status.sh` — wayvnc binds 127.0.0.1 only |
 | Hyprland fails to start | Try `WLR_RENDERER=pixman ~/.claude/.../start.sh` (NVIDIA quirks) |
+| Parent's PrintScreen / screenshot key stops working after sandbox use | Stale sandbox-scoped `slurp`/`hyprpicker` is being caught by `omarchy-cmd-screenshot`'s `pkill slurp && exit 0` toggle. `hypr-ccv stop` cleans this up automatically; for dirty crashes use `hypr-ccv doctor` (or `pkill slurp hyprpicker`) |
 
 ## License
 
