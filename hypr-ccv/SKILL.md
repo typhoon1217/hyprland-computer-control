@@ -42,7 +42,7 @@ Resolve paths relative to this skill's installed location when the CLI is unavai
 
 ## Observe → act → verify
 
-1. Establish the target from `status` and `snapshot`. The controller discovers the compositor by its launched PID, preserves the returned `wl_socket` string and rejects missing/stale state. With multiple possible parents, set `CC_PARENT_SIG` explicitly. A successful process launch is not readiness.
+1. Establish the target from `status` and `snapshot`. The controller discovers the compositor by its launched PID, preserves the returned `wl_socket` string and rejects missing/stale state. Its short `runtimeAlias` points only to the private runtime so Qt can reach both Unix IPC sockets; use the exported environment rather than reconstructing a long runtime path. With multiple possible parents, set `CC_PARENT_SIG` explicitly. A successful process launch is not readiness.
 2. Inspect a fresh screenshot. For an app, wait for its mapped PID in `clients`; for a layer-shell popup, inspect `hypr -j layers` and the actual rendered controls. Click the observed target, then verify focus/text before typing. Choose pointer selection when tab order is unsettled.
 3. After a change, wait for the specific expected UI/runtime condition within a deadline, then capture again. Recompute monitor geometry after Preview, rotation or scaling. VNC coordinates are output-local; arbitrary virtual-desktop coordinates are not interchangeable. The pointer helper rejects out-of-bounds coordinates.
 4. On a failed action, stop the chain, inspect focus/geometry/logs, and change the hypothesis. After two failures of the same action, use a different verified route or report the blocker. Distinguish a CLI-driven check from a GUI-driven interaction.

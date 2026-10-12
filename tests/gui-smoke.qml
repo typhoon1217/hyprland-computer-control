@@ -1,6 +1,9 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 ShellRoot {
+  property int ipcMonitorCount: Hyprland.monitors.values.length
+  onIpcMonitorCountChanged: console.log("IPC_MONITORS=" + ipcMonitorCount)
   FloatingWindow {
     id: window
     onWidthChanged: ready.restart()

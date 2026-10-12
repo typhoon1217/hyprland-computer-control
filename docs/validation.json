@@ -14,9 +14,12 @@
     "three-second MP4 recording",
     "owned process cleanup",
     "parent monitor geometry unchanged",
-    "parent monitors.lua SHA256 unchanged"
+    "parent monitors.lua SHA256 unchanged",
+    "Quickshell discovers two private IPC monitors",
+    "Quickshell receives output-added IPC event (2 to 3)",
+    "short runtime alias removed; replaced foreign link preserved by regression test"
   ],
-  "unitTests": 11,
+  "unitTests": 13,
   "skillValidation": "passed",
   "limits": [
     "GUI/profile isolation is not an OS security sandbox",

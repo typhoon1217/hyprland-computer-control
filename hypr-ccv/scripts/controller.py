@@ -92,7 +92,7 @@ def session_env(state):
     base = Path(state['directory'])
     env.update(HOME=str(base / 'home'), XDG_CONFIG_HOME=str(base / 'home/.config'),
                XDG_STATE_HOME=str(base / 'home/.local/state'), XDG_CACHE_HOME=str(base / 'home/.cache'),
-               XDG_DATA_HOME=str(base / 'home/.local/share'), XDG_RUNTIME_DIR=str(base / 'runtime'),
+               XDG_DATA_HOME=str(base / 'home/.local/share'), XDG_RUNTIME_DIR=session_runtime(state),
                CCV_SESSION_ID=state['id'], CCV_CONTROL_ROOT=str(base.parent), QT_QPA_PLATFORM='wayland', GDK_BACKEND='wayland',
                MOZ_ENABLE_WAYLAND='1')
     if state.get('signature'):
@@ -103,12 +103,38 @@ def session_env(state):
     return env
 
 
+def session_runtime(state):
+    return state.get('runtimeAlias', str(Path(state['directory']) / 'runtime'))
+
+
+def create_runtime_alias(root, state):
+    # Hyprland adds its ~63-character instance signature to this prefix.
+    # A long profile path silently truncates AF_UNIX addresses in Hyprland,
+    # while Qt uses the full path and cannot connect. Keep profiles in place.
+    alias = Path(tempfile.mkdtemp(prefix='v', dir=root.parents[1]))
+    alias.rmdir()
+    alias.symlink_to(Path(state['directory']) / 'runtime', target_is_directory=True)
+    state['runtimeAlias'] = str(alias)
+
+
+def validate_runtime_alias(state):
+    if 'runtimeAlias' not in state:
+        return
+    alias = Path(state['runtimeAlias'])
+    base = Path(state['directory'])
+    if (alias.parent != base.parents[2] or not re.fullmatch(r'v[a-z0-9_]{8}', alias.name)
+            or not alias.is_symlink() or alias.lstat().st_uid != os.getuid()
+            or alias.resolve() != (base / 'runtime').resolve()):
+        raise RuntimeError('Private runtime alias changed; preserve it and inspect the session')
+
+
 def load(root, require_ready=True):
     path = root / 'state.json'
     if not path.exists():
         raise RuntimeError('Sandbox is not running; use hypr-ccv start')
     state = json.loads(path.read_text())
     if require_ready:
+        validate_runtime_alias(state)
         if state['phase'] != 'ready' or not alive(state['processes']['hyprland']):
             raise RuntimeError('Sandbox is stale or initializing; inspect status/doctor, then restart')
         matches = json.loads(run(['hyprctl', 'instances', '-j'], session_env(state)))
@@ -139,7 +165,7 @@ def spawn(state, key, argv, env, root):
 
 def scoped_processes(state):
     """Only current-UID processes with the exact run marker and private runtime."""
-    expected_runtime = str(Path(state['directory']) / 'runtime')
+    expected_runtime = session_runtime(state)
     result = {}
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -182,6 +208,9 @@ def stop(root):
     time.sleep(.1)
     if any(tick is not None and identity(pid)==tick for pid,tick in scoped_processes(state).items()):
         raise RuntimeError('Owned processes remain; state retained for doctor/retry')
+    validate_runtime_alias(state)
+    if 'runtimeAlias' in state:
+        Path(state['runtimeAlias']).unlink()
     state['phase'] = 'stopped'
     save(root / 'last-session.json', state)
     (root / 'state.json').unlink()
@@ -227,8 +256,10 @@ def start(root, resolution, count):
              'processes':{}, 'resolution':resolution, 'outputs':[], 'hyprlandVersion':json.loads(version)}
     save(root / 'state.json', state)
     try:
+        create_runtime_alias(root, state)
+        save(root / 'state.json', state)
         env = session_env(state)
-        bus = f"unix:path={directory}/runtime/bus"
+        bus = f"unix:path={session_runtime(state)}/bus"
         spawn(state, 'dbus', ['dbus-daemon','--session','--nofork',f'--address={bus}'], env, root)
         wait_for(lambda:(directory / 'runtime/bus').is_socket(), 5)
         state['bus'] = bus
@@ -246,6 +277,11 @@ def start(root, resolution, count):
                 return None
         instance = wait_for(find_instance)
         state.update(signature=instance['instance'], display=instance['wl_socket'])
+        ipc_paths = [Path(session_runtime(state)) / 'hypr' / state['signature'] / name
+                     for name in ('.socket.sock', '.socket2.sock')]
+        if any(len(os.fsencode(path)) > 106 for path in ipc_paths):
+            raise RuntimeError('Private IPC exceeds Qt Unix socket path limit; use a shorter XDG_RUNTIME_DIR')
+        wait_for(lambda: all(path.is_socket() for path in ipc_paths))
         if Path(state['display']).name != state['display'] or not state['display'].startswith('wayland-'):
             raise RuntimeError('Unexpected Wayland socket name')
         save(root / 'state.json', state)
@@ -271,7 +307,7 @@ def start(root, resolution, count):
         if os.environ.get('CC_VNC','1')!='0':
             if not shutil.which('wayvnc'):
                 raise RuntimeError('Missing wayvnc; use CC_VNC=0 for keyboard-only testing')
-            state['vncSocket'] = str(directory / 'runtime/vnc.sock')
+            state['vncSocket'] = str(Path(session_runtime(state)) / 'vnc.sock')
             spawn(state,'wayvnc',['wayvnc','-u','-o',state['outputs'][0],state['vncSocket']],env,root)
             wait_for(lambda:Path(state['vncSocket']).is_socket(),5)
             client = pointer_module().RFBClient(unix_socket=state['vncSocket'])

@@ -45,6 +45,12 @@ try:
         item=next((c for c in clients if c['pid']==pid),None)
         return item and ('READY='+'x'.join(map(str,item['size']))) in app_log()
     wait(rendered)
+    wait(lambda:'IPC_MONITORS=2' in app_log())
+    run('hypr','output','create','headless')
+    wait(lambda:'IPC_MONITORS=3' in app_log())
+    extra=next(m['name'] for m in json.loads(run('hypr','-j','monitors')) if m['name'] not in state['outputs'])
+    run('hypr','output','remove',extra)
+    wait(lambda:len(json.loads(run('hypr','-j','monitors')))==2)
     client=next(c for c in json.loads(run('hypr','-j','clients')) if c['pid']==pid)
     x=client['at'][0]+client['size'][0]//2
     y=client['at'][1]+client['size'][1]//2
@@ -67,6 +73,7 @@ finally:
     assert parent_monitors()==before,'parent geometry changed'
     assert checksum==(hashlib.sha256(config.read_bytes()).hexdigest() if config.exists() else None),'parent config changed'
     if state:
+        assert not Path(state['runtimeAlias']).is_symlink(), 'private runtime alias remained'
         for process in state['processes'].values():
             stat=Path(f'/proc/{process["pid"]}/stat')
             if stat.exists(): assert stat.read_text().rsplit(') ',1)[1].split()[0]=='Z','owned process remained alive'

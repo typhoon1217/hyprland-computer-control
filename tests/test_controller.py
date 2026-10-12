@@ -14,6 +14,33 @@ spec=importlib.util.spec_from_file_location('controller',Path(__file__).resolve(
 ccv=importlib.util.module_from_spec(spec); spec.loader.exec_module(ccv)
 
 class IsolationTests(unittest.TestCase):
+    def test_runtime_alias_routes_environment_and_removes_only_owned_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp); root=base/'cc-vdisplay'/'test'; directory=root/'run-test'
+            (directory/'runtime').mkdir(parents=True)
+            state={'id':'ours','directory':str(directory),'phase':'ready','processes':{}}
+            ccv.create_runtime_alias(root,state)
+            alias=Path(state['runtimeAlias'])
+            self.assertEqual(alias.resolve(),directory/'runtime')
+            self.assertEqual(ccv.session_env(state)['XDG_RUNTIME_DIR'],str(alias))
+            (root/'state.json').write_text(json.dumps(state))
+            with patch.object(ccv,'scoped_processes',return_value={}): ccv.stop(root)
+            self.assertFalse(alias.is_symlink())
+            self.assertTrue((directory/'runtime').is_dir())
+
+    def test_stop_preserves_replaced_runtime_alias_and_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp); root=base/'cc-vdisplay'/'test'; directory=root/'run-test'
+            (directory/'runtime').mkdir(parents=True)
+            state={'id':'ours','directory':str(directory),'phase':'ready','processes':{}}
+            ccv.create_runtime_alias(root,state)
+            alias=Path(state['runtimeAlias']);alias.unlink();alias.symlink_to(base)
+            (root/'state.json').write_text(json.dumps(state))
+            with patch.object(ccv,'scoped_processes',return_value={}):
+                with self.assertRaises(RuntimeError): ccv.stop(root)
+            self.assertEqual(alias.resolve(),base)
+            self.assertTrue((root/'state.json').exists())
+
     def test_environment_has_private_profiles_and_bus(self):
         state={'id':'run1','directory':'/private/run1','signature':'sandbox','display':'wayland-1','bus':'unix:path=/private/bus'}
         with patch.dict(os.environ,{'HOME':'/real/home','DISPLAY':':0','SSH_AUTH_SOCK':'/real/auth','DBUS_SESSION_BUS_ADDRESS':'unix:path=/real/bus'}):
