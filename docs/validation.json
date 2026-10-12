@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-12",
+  "environment": {
+    "Hyprland": "0.56.2",
+    "Qt": "6.11.2",
+    "outputs": 2,
+    "resolution": "1280x800"
+  },
+  "verified": [
+    "real Qt GUI pointer callback CLICK=1",
+    "real Qt GUI keyboard callback INPUT=isolated-smoke",
+    "sandbox copy/paste completion with private clipboard",
+    "PNG frame delivery",
+    "three-second MP4 recording",
+    "owned process cleanup",
+    "parent monitor geometry unchanged",
+    "parent monitors.lua SHA256 unchanged"
+  ],
+  "unitTests": 11,
+  "skillValidation": "passed",
+  "limits": [
+    "GUI/profile isolation is not an OS security sandbox",
+    "nested bootstrap can briefly map a host window",
+    "private D-Bus excludes real-user services",
+    "physical hardware/VM acceptance not claimed",
+    "no unattended self-improvement daemon or automatic remote pushes"
+  ]
+}

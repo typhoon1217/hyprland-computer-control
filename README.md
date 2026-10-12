@@ -1,215 +1,74 @@
 # Hyprland Computer Control
 
-Two [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills for controlling Arch Linux desktops running Hyprland (Wayland):
+Two native Wayland skills for Codex, Claude Code and other agents:
 
-1. **`hypr-cc`** — direct control of the user's real desktop (mouse, keyboard, windows, screenshots, volume, brightness, media, clipboard, notifications). Useful when Claude needs to act on what's already on screen.
-2. **`hypr-ccv`** — a *sandboxed* second Hyprland instance running as a nested floating window, sized 1920x1080, positioned just below the visible monitors. Useful when Claude needs to test/automate Hyprland behavior without disturbing the user's real screen.
+- **hypr-cc:** control the user's existing desktop. Its real-seat input is not isolated.
+- **hypr-ccv:** test GUI flows under a separate Hyprland 0.56+ compositor with private HOME, XDG roots, Wayland/IPC, clipboard and D-Bus. Bootstrap through the existing Wayland session, then use 1–4 headless outputs.
 
-## Why?
+This is GUI/profile isolation, not a container or an OS security sandbox. Commands retain the user's filesystem permissions. A nested window can briefly map during bootstrap. The controller does not install host window rules, change host monitor config, reload the host compositor or inject kernel-seat input.
 
-Claude Code can already run shell commands, but it doesn't know *which* commands work on Hyprland/Wayland. These skills teach it the right tools and patterns, including hard-won gotchas:
+## Install
 
-- **`ydotool mousemove --absolute` is broken on Hyprland** — use `hyprctl dispatch movecursor` instead
-- **`ydotool type/key` bypasses your keymap** — use `wtype` instead (supports any layout, compose keys, input methods)
-- **`ydotool` needs a socket env var** or it silently fails
-- **`ydotool` is kernel-level** — even inside a nested compositor, its events go to the user's active seat (only Wayland-protocol tools like `wtype`, `grim`, `wl-copy` are properly isolated)
-- **Coordinates are virtual**, not monitor-local (matters with multi-monitor setups)
-- **Hyprland 0.40+ has no real headless backend** — Aquamarine forces nested-Wayland or DRM. Sandbox runs nested + floating off-screen.
-- **Hidden special-workspace windows skip frame submission** — `grim` hangs on them. Floating off-screen windows render normally.
-
-## Quick Start
+From this checkout:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/hyprland-computer-control.git
-cd hyprland-computer-control
-chmod +x setup.sh
-./setup.sh
+./setup.sh --sandbox-only
+# Or ./setup.sh to link both skills.
+# Explicit dependency install, only if needed:
+./hypr-ccv/scripts/install.sh
 ```
 
-The setup script:
-1. Installs all required packages via pacman (including `wayvnc` and `jq` for the sandbox)
-2. Creates a udev rule for uinput access
-3. Adds your user to the `input` group
-4. Enables the ydotool daemon
-5. Copies the `hypr-cc` skill to `~/.claude/skills/hypr-cc/`
-6. Copies the `hypr-ccv` skill to `~/.claude/skills/hypr-ccv/`
+Installation links the canonical skill folders into `~/.agents/skills`, `~/.codex/skills` (or `$CODEX_HOME/skills`) and `~/.claude/skills`, plus CLI links in `~/.local/bin`. Existing nonmatching files/directories are preserved. Updates to this checkout therefore update every linked agent. Start a new agent session to refresh its skill catalog.
 
-## Manual Install
+Sandbox dependencies: Hyprland with Lua config (0.56+), Python, hyprctl, wtype, grim, dbus-daemon and wayvnc. Clipboard commands need wl-clipboard; recordings need ffmpeg. `CC_VNC=0` omits pointer support. The direct-desktop `hypr-cc` skill has its own prerequisites; sandbox installation does not configure ydotool or uinput.
+
+## Isolated GUI workflow
 
 ```bash
-# Real-desktop skill dependencies
-sudo pacman -S ydotool wtype grim slurp wl-clipboard libnotify playerctl brightnessctl pamixer jq
-
-# Sandbox skill extras
-sudo pacman -S wayvnc
-
-# Copy real-desktop skill
-mkdir -p ~/.claude/skills/hypr-cc
-cp SKILL.md ~/.claude/skills/hypr-cc/SKILL.md
-
-# Copy sandbox skill
-mkdir -p ~/.claude/skills/hypr-ccv
-cp -r hypr-ccv/* ~/.claude/skills/hypr-ccv/
-
-# Setup ydotool
-systemctl --user enable --now ydotool.service
-echo 'KERNEL=="uinput", MODE="0666"' | sudo tee /etc/udev/rules.d/99-uinput.rules
-sudo usermod -aG input $USER
-# Re-login for group change to take effect
+export CC_SESSION=gui-test
+hypr-ccv start 1280x800 2
+hypr-ccv status
+hypr-ccv run quickshell -p /path/to/test-shell
+hypr-ccv hypr -j clients
+hypr-ccv shot /tmp/before.png
+# Inspect the image, then act on observed controls.
+hypr-ccv click 640 400
+hypr-ccv type 'test data'
+hypr-ccv key Return
+hypr-ccv keys -M ctrl -k a -m ctrl
+hypr-ccv snapshot /tmp/runtime.json
+hypr-ccv shot /tmp/after.png
+hypr-ccv record /tmp/flow.mp4 25
+hypr-ccv stop
 ```
 
-## What `hypr-cc` Can Do
+`run` detaches; `exec` waits. The controller finds its compositor by launched PID, checks start time/signature/socket before operations, and fails closed when state is stale. `CC_SESSION` supports independent named sessions. Multiple possible parent sessions require `CC_PARENT_SIG` or an unambiguous `WAYLAND_DISPLAY`.
 
-| Task | Tool Used | Input Conflicts? |
-|------|-----------|-----------------|
-| Type text / press keys | `wtype` | No |
-| Move mouse | `hyprctl dispatch movecursor` | No |
-| Click / scroll | `ydotool click` | Yes (don't touch mouse) |
-| Window management | `hyprctl dispatch` | No |
-| Screenshots | `grim` | No |
-| Clipboard | `wl-copy` / `wl-paste` | No |
-| Volume | `pamixer` | No |
-| Brightness | `brightnessctl` | No |
-| Media playback | `playerctl` | No |
-| Notifications | `notify-send` | No |
+Pointer input uses a private Unix socket to wayvnc, capturing `HEADLESS-1`. Coordinates are output-local pixels and validated against the negotiated framebuffer size; screenshot another output with `shot PATH OUTPUT`. A changed output geometry requires a new observation. VNC does not listen on a TCP port by default. `vnc` prints the private Unix endpoint.
 
-## What `hypr-ccv` Adds
+`stop` and `doctor` terminate only current-user processes with the session's exact run marker/private runtime, plus matching PID start times. They retain logs, profiles, screenshots and recording frames under the printed runtime directory for review. Missing state does not trigger a global process sweep. Preserve useful evidence before logout removes the runtime directory.
 
-A second Hyprland instance running invisibly inside the user's session. Apps launched in it never appear on the user's monitors, but they are reachable through:
+Private D-Bus excludes the host's login/service state. A systemd user service or authenticated app needing the real session requires an explicit integration design; GUI isolation alone does not authorize sharing credentials or services.
 
-- `hyprctl -i $SIG …` — full Hyprland IPC, scoped to the sandbox
-- `WAYLAND_DISPLAY=$WL wtype …` — typing into the sandbox
-- `WAYLAND_DISPLAY=$WL grim …` — screenshotting the sandbox
-- `WAYLAND_DISPLAY=$WL wl-copy …` — sandbox-private clipboard
-- VNC at `localhost:5999` for live monitoring (if `wayvnc` is installed)
-
-### Lifecycle
-
-After `setup.sh`, two short dispatchers are on `~/.local/bin`:
-
-- **`hypr-cc`** — drives the user's REAL desktop (mouse / keyboard / windows / volume / brightness / media / notifications)
-- **`hypr-ccv`** — drives the SANDBOX (everything fully isolated by `WAYLAND_DISPLAY` / instance signature / wayvnc)
+## Verification
 
 ```bash
-hypr-ccv start                          # spawn sandbox (nested, floating off-screen, 1920x1080) + wayvnc
-hypr-ccv status                         # PIDs, IPC reachability, VNC port
-hypr-ccv stop                           # graceful shutdown + cleanup
-hypr-ccv run firefox                    # launch an app inside the sandbox
-
-hypr-ccv click 540 320                  # isolated click (via wayvnc)
-hypr-ccv type 'hello'                   # isolated key input (via WAYLAND_DISPLAY)
-hypr-ccv shot /tmp/v.png                # isolated screenshot
-hypr-ccv hypr clients -j                # any hyprctl arg, scoped to sandbox
-hypr-ccv help                           # full subcommand list
+python -m unittest discover -s tests -p 'test_*.py' -v
+python tests/smoke.py
 ```
 
-Real-desktop equivalents (caution — they touch the user's actual session):
+The live smoke boots two headless outputs, launches a real Qt GUI, verifies pointer click and entered text, checks private clipboard, captures a PNG and a three-second MP4, stops the session, and asserts the parent's monitor geometry/config checksum did not change. It requires quickshell and ffmpeg in addition to the sandbox dependencies. Tests use fresh named sessions.
 
-```bash
-hypr-cc click 540 320
-hypr-cc type 'hello'
-hypr-cc shot active                     # active-window screenshot
-hypr-cc focus class:firefox
-hypr-cc vol -i 5                        # pamixer wrapper
-hypr-cc bri set +10%                    # brightnessctl wrapper
-hypr-cc media play-pause                # playerctl wrapper
-hypr-cc help
-```
+The April 2026 helper assumed Hyprland 0.54, legacy `.conf`, one output, shared profiles and TCP VNC. The current launcher uses Lua config and separately verifies frame delivery. Prior claims that headless outputs were impossible are not universal: nested bootstrap plus headless outputs was verified on Hyprland 0.56.2.
 
-### Isolation Guarantees (verified 2026-04-29)
+Verified on October 12, 2026: Hyprland 0.56.2, Qt 6.11.2, two 1280×800 headless outputs; 11 unit tests and the live GUI smoke passed. [Validation record](docs/validation.json) · [Three-second capture](docs/gui-smoke.mp4).
 
-| Tool | Mechanism | Isolated? |
-|------|-----------|-----------|
-| `hyprctl -i $SIG` | Hyprland IPC (per-instance) | ✅ Complete |
-| `wtype` | `virtual-keyboard-v1` (per `WAYLAND_DISPLAY`) | ✅ Complete |
-| `wl-copy` / `wl-paste` | `wlr-data-control` (per `WAYLAND_DISPLAY`) | ✅ Complete |
-| `grim` | `wlr-screencopy` (per `WAYLAND_DISPLAY`) | ✅ Complete |
-| `cc-click.py` (RFB → wayvnc) | `zwlr_virtual_pointer_v1` via wayvnc | ✅ Complete |
-| `ydotool` (click/key) | kernel `/dev/uinput` (system-wide) | ❌ NOT isolated |
+![Real isolated GUI with verified click and input](docs/gui-smoke.png)
 
-**Click isolation is achieved through `cc-click.py`** — a small RFB (VNC protocol) client (Python stdlib only, ~200 LoC) that connects to the wayvnc instance `start.sh` already runs on `localhost:5999`. wayvnc forwards the pointer event through wlroots' `zwlr_virtual_pointer_v1` protocol, which is scoped to the sandbox compositor. Verified: clicking sandbox coordinate `(960, 540)` with `cc-click.py click 960 540` brings sandbox `Alacritty` to focus while the user's main `kitty (tmux)` window stays focused on the real screen.
+## Skill improvement
 
-`ydotool` cannot be confined to the sandbox because it talks to a single system-wide `ydotoold` daemon writing to `/dev/uinput`. Use `cc-click.py` for clicks and `hyprctl dispatch …` (focuswindow, exec, killactive, etc.) for window operations — both fully isolated.
-
-## Tool Hierarchy
-
-The skills teach Claude to pick the right tool for each job:
-
-```
-Need to type text or press keys?
-  → wtype (respects keymap, no conflicts, isolated by WAYLAND_DISPLAY)
-
-Need to move the mouse?
-  → hyprctl dispatch movecursor (accurate on Hyprland, isolated)
-
-Need to click?
-  → cc-click.py click X Y (sandbox; isolated via wayvnc + virtual-pointer)
-  → ydotool click          (real desktop only; system-wide, NOT isolated)
-
-Need to manage windows / take screenshots / clipboard?
-  → hyprctl dispatch / grim / wl-copy — all isolated by WAYLAND_DISPLAY
-```
-
-## GUI Automation Pattern
-
-For tasks that need visual feedback (finding and clicking UI elements):
-
-1. `grim /tmp/screenshot.png` — take screenshot
-2. Claude reads the screenshot visually (multimodal)
-3. Identifies target coordinates
-4. `hyprctl dispatch movecursor X Y && sleep 0.2 && ydotool click 0xC0`
-5. Screenshots again to verify
-
-## Multi-Monitor Note
-
-Hyprland uses a virtual coordinate space. If your monitor has an offset:
-
-```bash
-# Check your layout
-hyprctl monitors -j | jq '.[] | {name, x, y, width, height}'
-```
-
-A monitor at position `x=1920` means its top-left corner is virtual coordinate `(1920, 0)`, not `(0, 0)`.
-
-The sandbox is at virtual `(0, 0)` with a single 1920x1080 monitor — no offsets, no scaling.
-
-## Browser Automation
-
-These skills are for **desktop** control only. For browser automation, use:
-- [claude-in-chrome](https://github.com/nichochar/claude-in-chrome) — Chrome extension MCP (works with your logged-in sessions)
-- [Playwright MCP](https://github.com/anthropics/claude-code/tree/main/plugins/playwright) — DOM-level browser control
-
-## Requirements
-
-- Arch Linux (or Arch-based distro)
-- Hyprland 0.40+ (Aquamarine backend)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-
-## Troubleshooting
-
-### `hypr-cc`
-
-| Problem | Fix |
-|---------|-----|
-| ydotool silently fails | `export YDOTOOL_SOCKET="/run/user/$(id -u)/.ydotool_socket"` |
-| ydotool daemon not running | `systemctl --user restart ydotool.service` |
-| Permission denied on uinput | Check udev rule + re-login for input group |
-| Mouse coordinates are wrong | Use `hyprctl dispatch movecursor`, check monitor offset |
-| Wrong characters when typing | Use `wtype` instead of `ydotool type` |
-| Input conflicts during automation | Don't touch mouse/keyboard while Claude is clicking |
-
-### `hypr-ccv`
-
-| Problem | Fix |
-|---------|-----|
-| `hyprctl -i $SIG` "couldn't connect" | Re-read `state.pid` — signature changes each start |
-| Sandbox window not invisible | Check `windowrulev2 'move 0 100%+10, class:aquamarine'` is registered |
-| `grim` hangs | Window is hidden; floating off-screen works, hidden workspaces don't |
-| `cc-click.py` "cannot connect" | wayvnc not running — `status.sh` to confirm, restart with `CC_VNC=1` |
-| `wayvnc` connection refused | Check `status.sh` — wayvnc binds 127.0.0.1 only |
-| Hyprland fails to start | Try `WLR_RENDERER=pixman ~/.claude/.../start.sh` (NVIDIA quirks) |
-| Parent's PrintScreen / screenshot key stops working after sandbox use | Stale sandbox-scoped `slurp`/`hyprpicker` is being caught by `omarchy-cmd-screenshot`'s `pkill slurp && exit 0` toggle. `hypr-ccv stop` cleans this up automatically; for dirty crashes use `hypr-ccv doctor` (or `pkill slurp hyprpicker`) |
+[hypr-ccv/SKILL.md](hypr-ccv/SKILL.md) routes agents through [verified lessons](hypr-ccv/references/lessons.md) and [the learning procedure](hypr-ccv/references/learning.md). After a demonstrated failure/fix, an agent can update concise local lessons and appropriate regression coverage. Unconfirmed causes stay labelled; no unattended service, background model invocation or automatic remote push is installed.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

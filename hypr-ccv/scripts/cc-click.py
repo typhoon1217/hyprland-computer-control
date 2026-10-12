@@ -54,8 +54,13 @@ BUTTON_MAP = {"left": BTN_LEFT, "middle": BTN_MIDDLE, "right": BTN_RIGHT}
 class RFBClient:
     """Minimal RFB 3.8 client — handshake + PointerEvent only."""
 
-    def __init__(self, host: str = VNC_HOST, port: int = VNC_PORT) -> None:
-        self.sock = socket.create_connection((host, port), timeout=5.0)
+    def __init__(self, host: str = VNC_HOST, port: int = VNC_PORT, unix_socket: str | None = None) -> None:
+        if unix_socket:
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.settimeout(5.0)
+            self.sock.connect(unix_socket)
+        else:
+            self.sock = socket.create_connection((host, port), timeout=5.0)
         self.sock.settimeout(5.0)
         self._handshake()
 
@@ -98,6 +103,7 @@ class RFBClient:
 
         # 5. ServerInit: width(2) height(2) pixelfmt(16) namelen(4) name(*)
         header = self._recv_exact(2 + 2 + 16 + 4)
+        self.width, self.height = struct.unpack(">HH", header[:4])
         name_len = struct.unpack(">I", header[-4:])[0]
         self._recv_exact(name_len)
         # Drain anything else the server might have queued (framebuffer
@@ -112,7 +118,9 @@ class RFBClient:
 
     def pointer(self, button_mask: int, x: int, y: int) -> None:
         # PointerEvent: type=5, buttonMask(1), x(u16), y(u16)
-        msg = struct.pack(">BBHH", 5, button_mask & 0xFF, x & 0xFFFF, y & 0xFFFF)
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            raise ValueError(f"Coordinates {x},{y} outside captured output {self.width}x{self.height}")
+        msg = struct.pack(">BBHH", 5, button_mask & 0xFF, x, y)
         self.sock.sendall(msg)
 
     def close(self) -> None:
@@ -175,6 +183,7 @@ def cmd_drag(rfb: RFBClient, args: argparse.Namespace) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--unix-socket", default=None)
     p.add_argument("--host", default=VNC_HOST)
     p.add_argument("--port", type=int, default=VNC_PORT)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -208,7 +217,7 @@ def main() -> int:
     args = p.parse_args()
 
     try:
-        rfb = RFBClient(args.host, args.port)
+        rfb = RFBClient(args.host, args.port, unix_socket=args.unix_socket)
     except (ConnectionRefusedError, ConnectionError) as e:
         print(f"ERROR: cannot connect to wayvnc at {args.host}:{args.port}: {e}", file=sys.stderr)
         print("       Start the sandbox with CC_VNC=1 (default).", file=sys.stderr)
